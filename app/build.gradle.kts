@@ -10,14 +10,14 @@ plugins {
 
 android {
     namespace = "com.muratcangzm.wiredeye"
-    compileSdk = 34
+    compileSdk = ProjectConfig.compileSdk
 
     defaultConfig {
         applicationId = "com.muratcangzm.wiredeye"
-        minSdk = 26
-        targetSdk = 34
+        minSdk = ProjectConfig.minSdk
+        targetSdk = ProjectConfig.targetSdk
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.27343235923941"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -35,9 +35,6 @@ android {
     }
     buildTypes {
         debug {
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-DEBUG"
-
             isShrinkResources = false
             isMinifyEnabled = false
             isDebuggable = true
@@ -53,7 +50,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
     kotlinOptions {
-        jvmTarget = "21"
+        jvmTarget = JavaVersion.VERSION_21.toString()
     }
     buildFeatures {
         compose = true
@@ -91,4 +88,8 @@ dependencies {
     implementation(libs.bundles.room)
     implementation(libs.bundles.glide)
     implementation(libs.bundles.navigation)
+}
+
+ksp{
+    arg("room.schemaLocation", "${projectDir}/schemas")
 }

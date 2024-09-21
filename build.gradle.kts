@@ -2,6 +2,7 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://www.jitpack.io") }
     }
     dependencies{
         classpath("com.google.dagger:hilt-android-gradle-plugin:${libs.versions.hilt}")
@@ -21,4 +22,8 @@ plugins {
     alias(libs.plugins.hilt) apply false
     alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.android.library) apply false
+}
+
+task("clean", type = Delete::class) {
+    delete(rootProject.buildDir)
 }

@@ -5,10 +5,10 @@ plugins {
 
 android {
     namespace = "com.muratcangzm.ui"
-    compileSdk = 34
+    compileSdk = ProjectConfig.compileSdk
 
     defaultConfig {
-        minSdk = 26
+        minSdk = ProjectConfig.minSdk
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
@@ -28,7 +28,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
     kotlinOptions {
-        jvmTarget = "21"
+        jvmTarget = JavaVersion.VERSION_21.toString()
     }
 }
 
