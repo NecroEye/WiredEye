@@ -22,3 +22,6 @@ dependencyResolutionManagement {
 rootProject.name = "WiredEye"
 include(":app")
 include(":core:ui")
+include(":core:network")
+include(":core:database")
+include(":core:preferences")
