@@ -7,9 +7,8 @@ import retrofit2.http.POST
 
 interface OpenAIService {
 
-@POST("completions")
-suspend fun generateResponse(
-    @Body request:AIRequest
-): AIResponse
-
+    @POST("completions")
+    suspend fun generateResponse(
+        @Body request: AIRequest
+    ): AIResponse
 }

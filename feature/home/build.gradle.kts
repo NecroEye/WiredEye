@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.muratcangzm.ui"
+    namespace = "com.muratcangzm.home"
     compileSdk = ProjectConfig.compileSdk
 
     defaultConfig {
@@ -16,13 +16,6 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-        debug {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -41,6 +34,8 @@ android {
 
 dependencies {
 
+    implementation(project(":core:ui"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
@@ -49,6 +44,6 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
 
     implementation(libs.bundles.uicore)
-    implementation(libs.bundles.coil)
+    implementation(libs.bundles.navigation)
     implementation(libs.bundles.accompanist)
 }

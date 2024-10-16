@@ -126,5 +126,6 @@ media3 = ["media3-exoplayer", "media3-okhttp", "media3-ui"]
 retrofit = ["retrofit", "retrofit-moshi-converter", "moshi", "moshi-kotlin",
     "okhttp", "okhttp-dnsoverhttps", "okhttp-logging-interceptor"]
 androidX = ["androidx-browser", "androidx-splashscreen", "androidx-savedstate"]
-coil = ["coil", "coil-compose"]
+coil = ["coil", "coil-compose", "coil-gif"]
 navigation = ["navigation-compose", "kotlinx-serialization-json"]
+accompanist = ["accompanist-insets-ui", "accompanist-permissions", "accompanist-systemuicontroller"]
