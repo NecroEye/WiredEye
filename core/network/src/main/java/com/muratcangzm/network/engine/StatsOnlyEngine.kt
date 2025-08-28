@@ -34,24 +34,36 @@ class StatsOnlyEngine(
     override val events = _events.asSharedFlow()
 
     private var job: Job? = null
+    private var pollIntervalMs: Long = 1_000L
+
+    override fun updateConfig(config: PacketCaptureConfig) {
+        pollIntervalMs = config.pollIntervalMs.coerceAtLeast(200L)
+    }
 
     override suspend fun start() {
         if (job != null) return
         _state.value = EngineState.Starting
         job = scope.launch {
             val bucket = NetworkStats.Bucket()
+            var lastTs = System.currentTimeMillis()
             try {
                 _state.value = EngineState.Running
                 while (isActive) {
                     val now = System.currentTimeMillis()
-                    listOf(ConnectivityManager.TYPE_WIFI, ConnectivityManager.TYPE_MOBILE).forEach { type ->
+                    val startTs = lastTs.coerceAtLeast(now - 60_000) // emniyet
+                    for (type in listOf(
+                        ConnectivityManager.TYPE_WIFI,
+                        ConnectivityManager.TYPE_MOBILE
+                    )) {
                         runCatching {
-                            val summary = nsm.querySummary(type, null, now - 2_000, now)
+                            val summary = nsm.querySummary(type, null, startTs, now)
                             while (summary.hasNextBucket()) {
                                 summary.getNextBucket(bucket)
                                 val bytes = bucket.rxBytes + bucket.txBytes
                                 if (bucket.uid > 0 && bytes > 0) {
-                                    val pkg = app.packageManager.getPackagesForUid(bucket.uid)?.firstOrNull()
+                                    val pkg = runCatching {
+                                        app.packageManager.getPackagesForUid(bucket.uid)?.firstOrNull()
+                                    }.getOrNull()
                                     _events.tryEmit(
                                         PacketMeta(
                                             timestamp = now,
@@ -70,7 +82,8 @@ class StatsOnlyEngine(
                             summary.close()
                         }
                     }
-                    delay(1_000)
+                    lastTs = now
+                    delay(pollIntervalMs)
                 }
             } catch (t: Throwable) {
                 _state.value = EngineState.Failed(t)

@@ -2,6 +2,7 @@ package com.muratcangzm.monitor
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.muratcangzm.data.helper.UidResolver
 import com.muratcangzm.data.model.meta.PacketMeta
 import com.muratcangzm.data.repo.packetRepo.PacketRepository
 import com.muratcangzm.monitor.common.UiPacket
@@ -21,55 +22,68 @@ import java.util.Locale
 class MonitorViewModel(
     private val repo: PacketRepository,
     private val engine: PacketCaptureEngine,
+    private val resolver: UidResolver
 ) : ViewModel() {
 
-    // Controls
     private val filterText = MutableStateFlow("")
     private val minBytes = MutableStateFlow(0L)
     private val windowMillis = MutableStateFlow(10_000L)
 
-    // Engine state (read-only)
     private val engineState: StateFlow<EngineState> = engine.state
 
-    // Stream: switch map repo.liveWindow(windowMillis)
+    private val totalAllTime = MutableStateFlow(0L)
+    private val seenApps = MutableStateFlow(emptySet<String>())
+
     @OptIn(ExperimentalCoroutinesApi::class)
     private val windowStream: Flow<List<PacketMeta>> =
         windowMillis.flatMapLatest { repo.liveWindow(it) }
 
     init {
         viewModelScope.launch {
-            engine.events.collect { meta -> repo.recordPacketMeta(meta) }
+            engine.events.collect { meta ->
+                repo.recordPacketMeta(meta)
+                totalAllTime.value = totalAllTime.value + meta.bytes
+                val key = appKey(meta)
+                if (key.isNotBlank() && !seenApps.value.contains(key)) {
+                    seenApps.value = seenApps.value + key
+                }
+            }
         }
     }
 
-    // Compose-friendly state
+    private data class WinCtx(
+        val list: List<PacketMeta>,
+        val filter: String,
+        val minB: Long,
+        val win: Long
+    )
+
+    private data class MetaCtx(
+        val eState: EngineState,
+        val totalAll: Long,
+        val appsSet: Set<String>
+    )
+
     val uiState: StateFlow<MonitorUiState> =
         combine(
-            windowStream,
-            filterText,
-            minBytes,
-            windowMillis,
-            engineState
-        ) { list, filter, minB, win, eState ->
-            val filtered = list.filter { m ->
-                (m.bytes >= minB) && matchesFilter(m, filter)
+            combine(windowStream, filterText, minBytes, windowMillis) { list, filter, minB, win ->
+                WinCtx(list, filter, minB, win)
+            },
+            combine(engineState, totalAllTime, seenApps) { eState, totalAll, appsSet ->
+                MetaCtx(eState, totalAll, appsSet)
             }
-
-            val items = filtered.asReversed()
-                .map { m -> m.toUiPacket() }
-
-            val totalBytes = filtered.sumOf { it.bytes }
-            val uniqueApps = filtered.map { it.packageName ?: "uid:${it.uid}" }.toSet().size
-            val pps = if (win > 0) filtered.size / (win / 1000.0) else 0.0
-
+        ) { w, m ->
+            val filtered = w.list.filter { it.bytes >= w.minB && matchesFilter(it, w.filter) }
+            val items = filtered.asReversed().map { it.toUiPacket() }
+            val pps = if (w.win > 0) filtered.size / (w.win / 1000.0) else 0.0
             MonitorUiState(
-                isEngineRunning = eState is EngineState.Running,
+                isEngineRunning = m.eState is EngineState.Running,
                 items = items,
-                filterText = filter,
-                minBytes = minB,
-                windowMillis = win,
-                totalBytes = totalBytes,
-                uniqueApps = uniqueApps,
+                filterText = w.filter,
+                minBytes = w.minB,
+                windowMillis = w.win,
+                totalBytes = m.totalAll,
+                uniqueApps = m.appsSet.size,
                 pps = pps
             )
         }.stateIn(
@@ -80,56 +94,74 @@ class MonitorViewModel(
 
     fun onEvent(ev: MonitorUiEvent) {
         when (ev) {
-            is MonitorUiEvent.SetFilter -> filterText.value = ev.text
+            is MonitorUiEvent.SetFilter   -> filterText.value = ev.text
             is MonitorUiEvent.SetMinBytes -> minBytes.value = ev.value
-            is MonitorUiEvent.SetWindow -> windowMillis.value = ev.millis
-            MonitorUiEvent.ClearFilter -> filterText.value = ""
-            MonitorUiEvent.StartEngine -> viewModelScope.launch { engine.start() }
-            MonitorUiEvent.StopEngine -> viewModelScope.launch { engine.stop() }
+            is MonitorUiEvent.SetWindow   -> windowMillis.value = ev.millis
+            MonitorUiEvent.ClearFilter    -> filterText.value = ""
+            MonitorUiEvent.StartEngine    -> viewModelScope.launch { engine.start() }
+            MonitorUiEvent.StopEngine     -> viewModelScope.launch { engine.stop() }
         }
     }
 
-    // --- Helpers ---
-
     private fun PacketMeta.toUiPacket(): UiPacket {
-        val key = "${timestamp}:${uid}:${bytes}"
-        val time = formatTime(timestamp)
-        val app = packageName ?: "uid:${uid ?: -1}"
-        val proto = protocol
+        val uidStr = uid?.toString() ?: "?"
+        val pkg = packageName ?: (uid?.let { resolver.packageFor(it) }) ?: ""
+        val label = uid?.let { resolver.labelFor(it) } ?: ""
+        val appText = when {
+            label.isNotBlank() && pkg.isNotBlank() -> "$label · $pkg (uid:$uidStr)"
+            label.isNotBlank() -> "$label (uid:$uidStr)"
+            pkg.isNotBlank() -> "$pkg (uid:$uidStr)"
+            else -> "uid:$uidStr"
+        }
         val from = "${localAddress}:${localPort}"
         val to = "${remoteAddress}:${remotePort}"
         val bytesLabel = humanBytes(bytes)
-        return UiPacket(key, time, app, proto, from, to, bytesLabel, this)
+        val protoPretty = protocol.uppercase(Locale.getDefault())
+        return UiPacket(
+            key = "$timestamp:$uidStr:$bytes",
+            time = formatTime(timestamp),
+            app = appText,
+            proto = protoPretty,
+            from = from,
+            to = to,
+            bytesLabel = bytesLabel,
+            raw = this
+        )
     }
+
+    private fun appKey(m: PacketMeta): String =
+        m.uid?.let { resolver.labelFor(it) }?.takeIf { it.isNotBlank() }
+            ?: m.packageName?.takeIf { it.isNotBlank() }
+            ?: m.uid?.let { "uid:$it" } ?: ""
 
     private fun matchesFilter(m: PacketMeta, q: String): Boolean {
         if (q.isBlank()) return true
         val s = q.lowercase(Locale.getDefault())
-        val fields = listOfNotNull(
-            m.packageName,
-            m.protocol,
-            m.localAddress,
-            m.remoteAddress,
-            m.localPort.toString(),
-            m.remotePort.toString()
-        ).joinToString(" ").lowercase(Locale.getDefault())
-        return s.split(" ").all { term -> fields.contains(term) }
+        val label = m.uid?.let { resolver.labelFor(it) } ?: ""
+        val pkg = m.packageName ?: m.uid?.let { resolver.packageFor(it) } ?: ""
+        val fields = buildString {
+            append(label).append(' ')
+            append(pkg).append(' ')
+            append("uid:").append(m.uid ?: "").append(' ')
+            append(m.protocol).append(' ')
+            append(m.localAddress ?: "").append(' ')
+            append(m.remoteAddress ?: "").append(' ')
+            append(m.localPort).append(' ')
+            append(m.remotePort)
+        }.lowercase(Locale.getDefault())
+        return s.split(" ").filter { it.isNotBlank() }.all { term -> fields.contains(term) }
     }
 
     private fun humanBytes(b: Long): String {
-        val units = arrayOf("B", "KB", "MB", "GB", "TB")
-        var v = b.toDouble()
-        var i = 0
-        while (v >= 1024 && i < units.lastIndex) {
-            v /= 1024; i++
-        }
-        return String.format(Locale.getDefault(), "%.1f %s", v, units[i])
+        val u = arrayOf("B","KB","MB","GB","TB")
+        var v = b.toDouble(); var i = 0
+        while (v >= 1024 && i < u.lastIndex) { v /= 1024; i++ }
+        return String.format(Locale.getDefault(), "%.1f %s", v, u[i])
     }
 
-    private fun formatTime(ts: Long): String {
-        val d = java.time.Instant.ofEpochMilli(ts)
+    private fun formatTime(ts: Long): String =
+        java.time.Instant.ofEpochMilli(ts)
             .atZone(java.time.ZoneId.systemDefault())
             .toLocalTime()
-        return d.toString()
-    }
+            .toString()
 }
