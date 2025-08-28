@@ -19,8 +19,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.MarqueeSpacing
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +56,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,6 +72,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -78,11 +86,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.FirstBaseline
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -97,8 +110,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muratcangzm.monitor.common.UiPacket
 import com.muratcangzm.monitor.utils.UsageAccess
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
 import kotlin.math.abs
@@ -110,6 +125,9 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
     val state by vm.uiState.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val haptic = LocalHapticFeedback.current
+    val snackbarHost = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var startRequested by rememberSaveable { mutableStateOf(false) }
     var isStopping by rememberSaveable { mutableStateOf(false) }
 
@@ -133,7 +151,24 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("WiredEye — Realtime Metadata", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "WiredEye — Realtime Metadata",
+                            maxLines = 1,
+                            overflow = TextOverflow.Visible,
+                            modifier = Modifier
+                                .weight(1f)
+                                .basicMarquee(
+                                    iterations = Int.MAX_VALUE,
+                                    repeatDelayMillis = 1200,
+                                    velocity = 32.dp,
+                                    spacing = MarqueeSpacing(24.dp)
+                                )
+                                .alignBy(FirstBaseline)
+                        )
+                    }
+                },
                 actions = {
                     val isQuiescent by rememberQuiescent(state.pps, state.throughputKbs)
 
@@ -157,18 +192,35 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                     ) { action ->
                         when (action) {
                             TopAction.Running -> {
-                                TextButton(onClick = { isStopping = true; vm.onEvent(MonitorUiEvent.StopEngine) }) {
-                                    Text("Stop")
+                                TextButton(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        isStopping = true
+                                        vm.onEvent(MonitorUiEvent.StopEngine)
+                                    }
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        LiveDotGhost(
+                                            running = state.isEngineRunning,
+                                            modifier = Modifier.padding(start = 4.dp ,end = 12.dp)
+                                        )
+                                        Text("Stop")
+                                    }
                                 }
                             }
+
                             TopAction.Settling -> {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp).padding(end = 10.dp),
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .padding(end = 10.dp),
                                     color = accent, strokeWidth = 2.dp
                                 )
                             }
+
                             TopAction.Idle -> {
                                 TextButton(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress) // 7) hafif haptic
                                     isStopping = false
                                     if (!UsageAccess.isGranted(ctx)) {
                                         startRequested = true
@@ -184,7 +236,9 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                     }
                 }
             )
-        }
+        },
+        // 6) M3 Snackbar host
+        snackbarHost = { SnackbarHost(hostState = snackbarHost) }
     ) { padd ->
         Box(
             Modifier
@@ -209,20 +263,79 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
 
                 // ---- UiPacketAdapter ile diff’li, düşük-jank liste ----
                 val adapter = rememberUiPacketAdapter()
-                LaunchedEffect(state.items) {
-                    adapter.submit(state.items)
-                }
+                LaunchedEffect(state.items) { adapter.submit(state.items) }
 
                 PacketList(
+                    isRunning = state.isEngineRunning,             // 5) empty state için
                     adapterItems = adapter.items,
-                    rawItems = state.items,           // pinned header için
+                    rawItems = state.items,
                     pinnedUids = state.pinnedUids,
-                    onPin = { uid -> vm.onEvent(MonitorUiEvent.TogglePin(uid)) },
-                    onShareWindowJson = { shareWindowJson(ctx, state.items) },
+                    onPin = { uid ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress) // 7) hafif haptic
+                        vm.onEvent(MonitorUiEvent.TogglePin(uid))
+                    },
+                    onShareWindowJson = {
+                        shareWindowJson(ctx, state.items, snackbarHost, scope)     // 6) share fail -> snackbar
+                    },
+                    onCopied = { what ->
+                        scope.launch { snackbarHost.showSnackbar("$what copied") } // 4) kopyalama bildirimi
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }
         }
+    }
+}
+
+/* ---------- live dot (running göstergesi) ---------- */
+@Composable
+fun LiveDotGhost(
+    running: Boolean,
+    modifier: Modifier = Modifier,
+    color: Color = Color(0xFF7BD7FF)   // aksan rengi
+) {
+    val inf = rememberInfiniteTransition(label = "live-dot")
+    val pulse by inf.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "pulse"
+    )
+
+    // Çalışmıyorken animasyonu görünmezleştir
+    val p = if (running) pulse else 0f
+
+    Canvas(
+        modifier
+            .size(10.dp)                   // küçük ve taşmıyor
+    ) {
+        val r = size.minDimension / 2f
+
+        drawCircle(
+            color = color.copy(alpha = 0.22f * (1f - p) + 0.04f),
+            radius = r * (1.6f + p * 1.0f)
+        )
+        drawCircle(
+            color = color.copy(alpha = 0.14f * (1f - p)),
+            radius = r * (2.1f + p * 0.7f)
+        )
+
+        // vurgu halkası (ince stroke)
+        drawCircle(
+            color = color.copy(alpha = 0.18f * (1f - p)),
+            radius = r * (1.3f + p * 1.2f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.28f)
+        )
+
+        // merkez nokta
+        drawCircle(
+            color = color.copy(alpha = 0.95f),
+            radius = r * (0.78f + p * 0.06f) // çok hafif nefes
+        )
     }
 }
 
@@ -256,11 +369,7 @@ private fun TechStatsBar(state: MonitorUiState, onWindowChange: (Long) -> Unit) 
 @Composable
 private fun GlowingStatChip(label: String, value: String, accent: Color) {
     var idle by remember { mutableStateOf(false) }
-    LaunchedEffect(value) {
-        idle = false
-        delay(2500)
-        idle = true
-    }
+    LaunchedEffect(value) { idle = false; delay(2500); idle = true }
 
     val inf = rememberInfiniteTransition(label = "chipGlow")
     val pulse by inf.animateFloat(
@@ -319,14 +428,12 @@ private fun GhostFilterField(
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
 
-    // Focus yokken de daha belirgin: 0.6 -> focus olduğunda 1.0
     val glow by animateFloatAsState(
         targetValue = if (focused) 1f else 0.6f,
         animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "ghostGlow"
     )
 
-    // Daha görünür kenar + hafif daha opak arka plan
     val borderBrush = Brush.linearGradient(
         colors = listOf(
             Color(0xFF233355).copy(alpha = 0.65f * glow),
@@ -347,13 +454,12 @@ private fun GhostFilterField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
-            // LABEL: animasyonlu yazım efekti (8 sn'de bir; soldan sağa harf harf)
             label = { GhostLabelAnimated(text = label) },
             trailingIcon = trailing,
             interactionSource = interaction,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { /* flow'a gidiyor */ }),
-            textStyle = MaterialTheme.typography.bodySmall, // daha kompakt metin
+            keyboardActions = KeyboardActions(onSearch = { /* flow */ }),
+            textStyle = MaterialTheme.typography.bodySmall,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedContainerColor = Color.Transparent,
                 unfocusedContainerColor = Color.Transparent,
@@ -379,19 +485,18 @@ private fun GhostFilterField(
     }
 }
 
-/** Label için 8 saniyede bir tetiklenen typewriter efekti. Genişlik sabit kalsın diye görünmeyen kısmı alpha=0.0 ile yazıyoruz. */
-
+/** Label: 8 sn’de bir typewriter efekti + kenar harfine renk animasyonu */
 @Composable
 private fun GhostLabelAnimated(
     text: String,
     baseColor: Color = Color(0xFF9EB2C0).copy(alpha = 0.62f),
     revealColor: Color = baseColor.copy(alpha = 0.98f),
-    tickMs: Long = 60L,               // harf atlama hızı
-    cyclePauseMs: Long = 6000L,       // 8 sn’de bir başa sar
-    edgeAnimMs: Int = 220             // geçiş harfi renk anim süresi
+    tickMs: Long = 60L,
+    cyclePauseMs: Long = 6000L,
+    edgeAnimMs: Int = 220
 ) {
     var visible by remember(text) { mutableIntStateOf(0) }
-    val edgeProgress = remember { Animatable(0f) } // 0..1
+    val edgeProgress = remember { Animatable(0f) }
 
     LaunchedEffect(text) {
         while (true) {
@@ -403,15 +508,11 @@ private fun GhostLabelAnimated(
             visible = 0
         }
     }
-
-    // Geçişteki (sınırdaki) harfin rengi için animasyonu her adımda baştan çalıştır
     LaunchedEffect(visible) {
         if (visible > 0) {
             edgeProgress.snapTo(0f)
             edgeProgress.animateTo(1f, animationSpec = tween(edgeAnimMs))
-        } else {
-            edgeProgress.snapTo(0f)
-        }
+        } else edgeProgress.snapTo(0f)
     }
 
     val dimColor = baseColor.copy(alpha = 0.35f)
@@ -419,27 +520,11 @@ private fun GhostLabelAnimated(
 
     val annotated = remember(visible, text, dimColor, revealColor, edgeColor) {
         buildAnnotatedString {
-            // Tamamen ortaya çıkmış kısım
-            if (visible > 1) {
-                withStyle(SpanStyle(color = revealColor)) {
-                    append(text.substring(0, visible - 1))
-                }
-            }
-            // Geçişteki tek harf (renk animasyonlu)
-            if (visible in 1..text.length) {
-                withStyle(SpanStyle(color = edgeColor)) {
-                    append(text[visible - 1].toString())
-                }
-            }
-            // Geri kalan sönük kısım
-            if (visible < text.length) {
-                withStyle(SpanStyle(color = dimColor)) {
-                    append(text.substring(visible))
-                }
-            }
+            if (visible > 1) withStyle(SpanStyle(color = revealColor)) { append(text.substring(0, visible - 1)) }
+            if (visible in 1..text.length) withStyle(SpanStyle(color = edgeColor)) { append(text[visible - 1].toString()) }
+            if (visible < text.length) withStyle(SpanStyle(color = dimColor)) { append(text.substring(visible)) }
         }
     }
-
     Text(annotated)
 }
 
@@ -511,10 +596,7 @@ private fun Segmented(
                         .clickable { onSelectState(value) }
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
-                    Text(
-                        text = label,
-                        color = if (active) Color(0xFF7BD7FF) else Color(0xFF9EB2C0)
-                    )
+                    Text(text = label, color = if (active) Color(0xFF7BD7FF) else Color(0xFF9EB2C0))
                 }
             }
         }
@@ -524,21 +606,17 @@ private fun Segmented(
 /* ----------------------------- UI PACKET ADAPTER (DIFF) ----------------------------- */
 
 private data class UiPacketItem(
-    val id: String,           // stabilized render id (unique in list)
+    val id: String,
     val model: UiPacket,
-    val contentHash: Int      // cheap hash to detect visual changes
+    val contentHash: Int
 )
 
-/** Basit ve hızlı: remove, insert/move ve content update uygular. */
 private class UiPacketAdapter {
     val items = mutableStateListOf<UiPacketItem>()
 
     fun submit(models: List<UiPacket>) {
-        // 1) Stabil, duplicate-safe id üret (senin eski yaklaşımı koruyarak)
         val seen = HashMap<String, Int>(max(16, models.size))
         val newProjected = ArrayList<UiPacketItem>(models.size)
-
-        // Eski öğeleri id->item map olarak sakla, referans reuse için
         val oldById = HashMap<String, UiPacketItem>(items.size)
         items.forEach { oldById[it.id] = it }
 
@@ -549,58 +627,33 @@ private class UiPacketAdapter {
 
             val ch = fastContentHash(m)
             val reused = oldById[id]?.takeIf { it.contentHash == ch }
-            if (reused != null) {
-                newProjected.add(reused)
-            } else {
-                newProjected.add(UiPacketItem(id = id, model = m, contentHash = ch))
-            }
+            if (reused != null) newProjected.add(reused) else newProjected.add(UiPacketItem(id, m, ch))
         }
 
-        // 2) Diff uygula: önce eski listeden artık olmayanları sil
         val newIds = newProjected.mapTo(HashSet(newProjected.size)) { it.id }
-        for (i in items.lastIndex downTo 0) {
-            if (!newIds.contains(items[i].id)) {
-                items.removeAt(i)
-            }
-        }
+        for (i in items.lastIndex downTo 0) if (!newIds.contains(items[i].id)) items.removeAt(i)
 
-        // 3) Ardından ekle/taşı ve içerik güncelle
         var i = 0
         while (i < newProjected.size) {
             val desired = newProjected[i]
-            if (i >= items.size) {
-                items.add(desired)
-            } else {
+            if (i >= items.size) items.add(desired) else {
                 val current = items[i]
                 if (current.id == desired.id) {
-                    // Aynı id; content değişmişse replace et
-                    if (current.contentHash != desired.contentHash || current.model !== desired.model) {
-                        items[i] = desired
-                    }
+                    if (current.contentHash != desired.contentHash || current.model !== desired.model) items[i] = desired
                 } else {
-                    // Listedeki başka yerde mi? taşı
                     val existingIndex = items.indexOfFirst { it.id == desired.id }
                     if (existingIndex >= 0) {
                         val moved = items.removeAt(existingIndex)
                         items.add(i, moved)
-                        // contentHash eskiyse zaten reused; değilse desired ile replace
-                        if (moved.contentHash != desired.contentHash || moved.model !== desired.model) {
-                            items[i] = desired
-                        }
-                    } else {
-                        items.add(i, desired)
-                    }
+                        if (moved.contentHash != desired.contentHash || moved.model !== desired.model) items[i] = desired
+                    } else items.add(i, desired)
                 }
             }
             i++
         }
-        // 4) newProjected’ten kısa kaldıysa sondakileri temizle
-        while (items.size > newProjected.size) {
-            items.removeAt(items.lastIndex)
-        }
+        while (items.size > newProjected.size) items.removeAt(items.lastIndex)
     }
 
-    /** Görseli etkileyen alanlardan ucuz bir hash: timestamp, bytes, proto, from/to, app metni. */
     private fun fastContentHash(m: UiPacket): Int {
         var h = 17
         h = 31 * h + (m.raw.timestamp xor (m.raw.timestamp ushr 32)).toInt()
@@ -614,20 +667,22 @@ private class UiPacketAdapter {
 }
 
 @Composable
-private fun rememberUiPacketAdapter(): UiPacketAdapter {
-    return remember { UiPacketAdapter() }
-}
+private fun rememberUiPacketAdapter(): UiPacketAdapter = remember { UiPacketAdapter() }
 
 /* ----------------------------- /UI PACKET ADAPTER ----------------------------- */
 
 @Composable
-private fun FilterBar(text: String, minBytes: Long, onText: (String) -> Unit, onClear: () -> Unit, onMinBytes: (Long) -> Unit) {
+private fun FilterBar(
+    text: String,
+    minBytes: Long,
+    onText: (String) -> Unit,
+    onClear: () -> Unit,
+    onMinBytes: (Long) -> Unit
+) {
     val focusManager = LocalFocusManager.current
     val keyboardVisible by rememberKeyboardVisible()
     LaunchedEffect(keyboardVisible) {
-        if (!keyboardVisible) {
-            focusManager.clearFocus(force = false)
-        }
+        if (!keyboardVisible) focusManager.clearFocus(force = false)
     }
 
     Column(
@@ -659,16 +714,25 @@ private fun FilterBar(text: String, minBytes: Long, onText: (String) -> Unit, on
 
 @Composable
 private fun PacketList(
+    isRunning: Boolean,
     adapterItems: List<UiPacketItem>,
     rawItems: List<UiPacket>,
     pinnedUids: Set<Int>,
     onPin: (Int) -> Unit,
     onShareWindowJson: () -> Unit,
+    onCopied: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
 
-    // Sticky header için her UID’in en yeni pinned kaydı (rawItems üzerinden)
+    // 5) Empty state
+    val isEmpty = adapterItems.isEmpty() && rawItems.isEmpty()
+    if (isEmpty) {
+        EmptyState(isRunning = isRunning)
+        return
+    }
+
+    // Sticky header için pinned son kayıtlar
     val pinnedLatest = remember(rawItems, pinnedUids) {
         val map = HashMap<Int, UiPacket>()
         for (it in rawItems) {
@@ -719,17 +783,33 @@ private fun PacketList(
                 }
             }
         }
-        items(
-            items = adapterItems,
-            key = { it.id }
-        ) { item ->
+        items(items = adapterItems, key = { it.id }) { item ->
             PacketRow(
                 row = item.model,
                 onPin = onPin,
                 onShareWindowJson = onShareWindowJson,
+                onCopied = onCopied,
                 modifier = Modifier
             )
         }
+    }
+}
+
+@Composable
+private fun EmptyState(isRunning: Boolean) {
+    val hint = if (isRunning) "Listening for packets…" else "Tap Start to begin capture"
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(Modifier.height(16.dp))
+        Text("No packets yet", color = Color(0xFF9EB2C0), style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(hint, color = Color(0xFF6E8296), style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(32.dp))
     }
 }
 
@@ -766,11 +846,13 @@ private fun PinnedRowCompact(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PacketRow(
     row: UiPacket,
     onPin: (Int) -> Unit,
     onShareWindowJson: () -> Unit,
+    onCopied: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val border = remember {
@@ -778,6 +860,8 @@ private fun PacketRow(
     }
     val uid = row.raw.uid ?: -1
     val dir = inferDirection(row)
+    val clipboard = LocalClipboardManager.current
+    val haptic = LocalHapticFeedback.current
 
     Surface(
         color = Color(0xFF0F1726),
@@ -788,7 +872,11 @@ private fun PacketRow(
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .padding(end = 16.dp)
+                ) {
                     Text(row.app, style = MaterialTheme.typography.titleMedium, color = Color(0xFF7BD7FF), maxLines = 3, overflow = TextOverflow.Ellipsis)
                     val uidText = "uid:${row.raw.uid ?: -1}"
                     val pkgText = row.raw.packageName ?: "—"
@@ -798,8 +886,12 @@ private fun PacketRow(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val dirLabel = when (dir) { Direction.TX -> "TX"; Direction.RX -> "RX"; Direction.MIX -> "MIX"; null -> "—" }
-                val dirColor = when (dir) { Direction.TX -> Color(0xFFFFB86C); Direction.RX -> Color(0xFF7BD7FF); Direction.MIX -> Color(0xFFBCE784); null -> Color(0xFF9EB2C0) }
+                val dirLabel = when (dir) {
+                    Direction.TX -> "TX"; Direction.RX -> "RX"; Direction.MIX -> "MIX"; null -> "—"
+                }
+                val dirColor = when (dir) {
+                    Direction.TX -> Color(0xFFFFB86C); Direction.RX -> Color(0xFF7BD7FF); Direction.MIX -> Color(0xFFBCE784); null -> Color(0xFF9EB2C0)
+                }
                 Text(row.proto, color = Color(0xFF30E3A2), style = MaterialTheme.typography.bodyMedium)
                 Text("•", color = Color(0xFF8EA0B5), style = MaterialTheme.typography.bodyMedium)
                 Text(dirLabel, color = dirColor, style = MaterialTheme.typography.bodyMedium)
@@ -807,10 +899,37 @@ private fun PacketRow(
                 Text(row.bytesLabel, color = Color(0xFF30E3A2), style = MaterialTheme.typography.bodyMedium)
             }
 
+            // 4) From/To uzun basınca kopyalama
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Mono("from  ${row.from}")
+                Text(
+                    "from  ${row.from}",
+                    color = Color(0xFFB8C8D8),
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.combinedClickable(
+                        onClick = {},
+                        onLongClick = {
+                            clipboard.setText(AnnotatedString(row.from))
+                            onCopied("From")
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    )
+                )
                 Text("→", color = Color(0xFF8EA0B5), style = MaterialTheme.typography.bodySmall)
-                Mono("to  ${row.to}")
+                Text(
+                    "to  ${row.to}",
+                    color = Color(0xFFB8C8D8),
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.combinedClickable(
+                        onClick = {},
+                        onLongClick = {
+                            clipboard.setText(AnnotatedString(row.to))
+                            onCopied("To")
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    )
+                )
             }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -845,20 +964,21 @@ private fun Mono(text: String) {
 
 /* ----------------------------- SHARE JSON (FileProvider) ----------------------------- */
 
-private const val LARGE_SHARE_THRESHOLD = 150_000 // byte
-
-private fun shareWindowJson(ctx: android.content.Context, items: List<UiPacket>) {
+private fun shareWindowJson(
+    ctx: Context,
+    items: List<UiPacket>,
+    snackbarHost: SnackbarHostState,
+    scope: CoroutineScope
+) {
     runCatching {
         val json = buildJson(items)
         val dir = File(ctx.cacheDir, "exports").apply { mkdirs() }
         val file = File(dir, "wiredeye_${System.currentTimeMillis()}.json")
         file.writeText(json)
 
-        // 2) FileProvider URI'si üret
         val authority = ctx.applicationContext.packageName + ".fileprovider"
         val uri = FileProvider.getUriForFile(ctx, authority, file)
 
-        // 3) ACTION_SEND + EXTRA_STREAM + okuma izni
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "application/json"
             putExtra(Intent.EXTRA_STREAM, uri)
@@ -866,36 +986,23 @@ private fun shareWindowJson(ctx: android.content.Context, items: List<UiPacket>)
             clipData = ClipData.newUri(ctx.contentResolver, file.name, uri)
         }
 
-        // 4) Potansiyel alıcılara önceden izin ver (güvenilirlik artar)
         val resInfo = ctx.packageManager.queryIntentActivities(send, PackageManager.MATCH_DEFAULT_ONLY)
         for (ri in resInfo) {
-            ctx.grantUriPermission(
-                ri.activityInfo.packageName,
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
+            ctx.grantUriPermission(ri.activityInfo.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-
         ctx.startActivity(Intent.createChooser(send, "Share snapshot"))
     }.onFailure {
-        val fallback = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, buildJson(items))
-        }
-        try {
+        // 6) Hata -> Snackbar
+        scope.launch { snackbarHost.showSnackbar("Sharing failed") }
+        // Fallback olarak text share deneyelim:
+        runCatching {
+            val fallback = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, buildJson(items))
+            }
             ctx.startActivity(Intent.createChooser(fallback, "Share snapshot"))
-        } catch (_: Exception) {
-            // burada senin gösterdiğin "sharing failed" tostu devreye girer
         }
     }
-}
-
-private fun writeJsonAndGetUri(ctx: Context, json: String): android.net.Uri {
-    val file = File(ctx.cacheDir, "wiredeye_snapshot_${System.currentTimeMillis()}.json")
-    file.writeText(json, Charsets.UTF_8)
-    // Manifest’te provider authority: ${applicationId}.fileprovider
-    val authority = ctx.packageName + ".fileprovider"
-    return FileProvider.getUriForFile(ctx, authority, file)
 }
 
 private fun buildJson(items: List<UiPacket>): String {
@@ -918,26 +1025,28 @@ private fun buildJson(items: List<UiPacket>): String {
     return sb.toString()
 }
 
-private fun String.escapeJson(): String =
-    buildString {
-        for (c in this@escapeJson) {
-            when (c) {
-                '\\' -> append("\\\\")
-                '"' -> append("\\\"")
-                '\n' -> append("\\n")
-                '\r' -> append("\\r")
-                '\t' -> append("\\t")
-                else -> append(c)
-            }
+private fun String.escapeJson(): String = buildString {
+    for (c in this@escapeJson) {
+        when (c) {
+            '\\' -> append("\\\\")
+            '"' -> append("\\\"")
+            '\n' -> append("\\n")
+            '\r' -> append("\\r")
+            '\t' -> append("\\t")
+            else -> append(c)
         }
     }
+}
 
 /* ----------------------------- /SHARE JSON ----------------------------- */
 
 private fun humanBytes(b: Long): String {
     val u = arrayOf("B", "KB", "MB", "GB", "TB")
-    var v = b.toDouble(); var i = 0
-    while (v >= 1024 && i < u.lastIndex) { v /= 1024; i++ }
+    var v = b.toDouble();
+    var i = 0
+    while (v >= 1024 && i < u.lastIndex) {
+        v /= 1024; i++
+    }
     return String.format(Locale.getDefault(), "%.1f %s", v, u[i])
 }
 
@@ -953,8 +1062,7 @@ private fun rememberQuiescent(
     LaunchedEffect(pps, kbs) {
         val nearZero = (abs(pps) < ppsThreshold && abs(kbs) < kbsThreshold)
         if (!nearZero) {
-            quiet.value = false
-            return@LaunchedEffect
+            quiet.value = false; return@LaunchedEffect
         }
         delay(holdMs)
         quiet.value = (abs(pps) < ppsThreshold && abs(kbs) < kbsThreshold)
