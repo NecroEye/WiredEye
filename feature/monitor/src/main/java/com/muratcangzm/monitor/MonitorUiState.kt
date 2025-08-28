@@ -10,5 +10,7 @@ data class MonitorUiState(
     val windowMillis: Long = 10_000,
     val totalBytes: Long = 0,
     val uniqueApps: Int = 0,
-    val pps: Double = 0.0
+    val pps: Double = 0.0,
+    val throughputKbs: Double = 0.0,
+    val pinnedUids: Set<Int> = emptySet()
 )

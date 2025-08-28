@@ -7,4 +7,6 @@ sealed interface MonitorUiEvent {
     data object StartEngine : MonitorUiEvent
     data object StopEngine : MonitorUiEvent
     data object ClearFilter : MonitorUiEvent
+    data class TogglePin(val uid: Int) : MonitorUiEvent
+    data class ToggleMute(val uid: Int) : MonitorUiEvent
 }
