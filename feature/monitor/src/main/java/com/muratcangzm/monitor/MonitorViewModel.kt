@@ -14,7 +14,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -30,7 +33,6 @@ class MonitorViewModel(
     private val windowMillis = MutableStateFlow(10_000L)
 
     private val engineState: StateFlow<EngineState> = engine.state
-
     private val totalAllTime = MutableStateFlow(0L)
     private val seenApps = MutableStateFlow(emptySet<String>())
 
@@ -51,46 +53,49 @@ class MonitorViewModel(
         }
     }
 
-    private data class WinCtx(
-        val list: List<PacketMeta>,
-        val filter: String,
-        val minB: Long,
-        val win: Long
-    )
+    private data class Controls(val win: Long, val filter: String, val minB: Long)
+    private data class Stats(val total: Long, val uniqueApps: Int, val pps: Double)
 
-    private data class MetaCtx(
-        val eState: EngineState,
-        val totalAll: Long,
-        val appsSet: Set<String>
-    )
+    private val controls: StateFlow<Controls> =
+        combine(windowMillis, filterText, minBytes) { win, filter, minB ->
+            Controls(win, filter, minB)
+        }.distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Controls(10_000L, "", 0L))
+
+    private val itemsFlow: StateFlow<List<UiPacket>> =
+        combine(windowStream, controls) { list, c ->
+            list.filter { it.bytes >= c.minB && matchesFilter(it, c.filter) }
+                .asReversed()
+                .map { it.toUiPacket() }
+        }
+            .sample(350)
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val statsFlow: StateFlow<Stats> =
+        combine(windowStream, controls) { list, c ->
+            val f = list.filter { it.bytes >= c.minB && matchesFilter(it, c.filter) }
+            val pps = if (c.win > 0) f.size / (c.win / 1000.0) else 0.0
+            Stats(totalAllTime.value, seenApps.value.size, pps)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Stats(0L, 0, 0.0))
+
+    private val isRunningFlow: StateFlow<Boolean> =
+        engineState.map { it is EngineState.Running }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     val uiState: StateFlow<MonitorUiState> =
-        combine(
-            combine(windowStream, filterText, minBytes, windowMillis) { list, filter, minB, win ->
-                WinCtx(list, filter, minB, win)
-            },
-            combine(engineState, totalAllTime, seenApps) { eState, totalAll, appsSet ->
-                MetaCtx(eState, totalAll, appsSet)
-            }
-        ) { w, m ->
-            val filtered = w.list.filter { it.bytes >= w.minB && matchesFilter(it, w.filter) }
-            val items = filtered.asReversed().map { it.toUiPacket() }
-            val pps = if (w.win > 0) filtered.size / (w.win / 1000.0) else 0.0
+        combine(itemsFlow, controls, isRunningFlow, statsFlow) { items, c, running, s ->
             MonitorUiState(
-                isEngineRunning = m.eState is EngineState.Running,
+                isEngineRunning = running,
                 items = items,
-                filterText = w.filter,
-                minBytes = w.minB,
-                windowMillis = w.win,
-                totalBytes = m.totalAll,
-                uniqueApps = m.appsSet.size,
-                pps = pps
+                filterText = c.filter,
+                minBytes = c.minB,
+                windowMillis = c.win,
+                totalBytes = s.total,
+                uniqueApps = s.uniqueApps,
+                pps = s.pps
             )
-        }.stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            MonitorUiState()
-        )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorUiState())
 
     fun onEvent(ev: MonitorUiEvent) {
         when (ev) {
@@ -105,40 +110,46 @@ class MonitorViewModel(
 
     private fun PacketMeta.toUiPacket(): UiPacket {
         val uidStr = uid?.toString() ?: "?"
-        val pkg = packageName ?: (uid?.let { resolver.packageFor(it) }) ?: ""
-        val label = uid?.let { resolver.labelFor(it) } ?: ""
+        val pkg = packageName ?: uid?.let { safePackage(it) } ?: ""
+        val label = uid?.let { safeLabel(it) } ?: ""
         val appText = when {
             label.isNotBlank() && pkg.isNotBlank() -> "$label · $pkg (uid:$uidStr)"
             label.isNotBlank() -> "$label (uid:$uidStr)"
             pkg.isNotBlank() -> "$pkg (uid:$uidStr)"
             else -> "uid:$uidStr"
         }
-        val from = "${localAddress}:${localPort}"
-        val to = "${remoteAddress}:${remotePort}"
-        val bytesLabel = humanBytes(bytes)
-        val protoPretty = protocol.uppercase(Locale.getDefault())
+        val local = if (localAddress == "-" || localPort <= 0) "—" else "$localAddress:$localPort"
+        val remote = if (remoteAddress == "-" || remotePort <= 0) "—" else "$remoteAddress:$remotePort"
+        val transport = protocol.uppercase(Locale.getDefault())
+        val port = when {
+            remotePort > 0 -> remotePort
+            localPort > 0 -> localPort
+            else -> 0
+        }
+        val svc = SERVICE_NAMES[port]
+        val protoPretty = if (svc != null && port > 0) "$transport • $svc:$port" else transport
         return UiPacket(
-            key = "$timestamp:$uidStr:$bytes",
+            key = "$timestamp:$uidStr:$bytes:$localPort:$remotePort",
             time = formatTime(timestamp),
             app = appText,
             proto = protoPretty,
-            from = from,
-            to = to,
-            bytesLabel = bytesLabel,
+            from = local,
+            to = remote,
+            bytesLabel = humanBytes(bytes),
             raw = this
         )
     }
 
     private fun appKey(m: PacketMeta): String =
-        m.uid?.let { resolver.labelFor(it) }?.takeIf { it.isNotBlank() }
+        m.uid?.let { safeLabel(it) }?.takeIf { it.isNotBlank() }
             ?: m.packageName?.takeIf { it.isNotBlank() }
             ?: m.uid?.let { "uid:$it" } ?: ""
 
     private fun matchesFilter(m: PacketMeta, q: String): Boolean {
         if (q.isBlank()) return true
         val s = q.lowercase(Locale.getDefault())
-        val label = m.uid?.let { resolver.labelFor(it) } ?: ""
-        val pkg = m.packageName ?: m.uid?.let { resolver.packageFor(it) } ?: ""
+        val label = m.uid?.let { safeLabel(it) } ?: ""
+        val pkg = m.packageName ?: m.uid?.let { safePackage(it) } ?: ""
         val fields = buildString {
             append(label).append(' ')
             append(pkg).append(' ')
@@ -152,6 +163,9 @@ class MonitorViewModel(
         return s.split(" ").filter { it.isNotBlank() }.all { term -> fields.contains(term) }
     }
 
+    private fun safeLabel(uid: Int): String? = runCatching { resolver.labelFor(uid) }.getOrNull()
+    private fun safePackage(uid: Int): String? = runCatching { resolver.packageFor(uid) }.getOrNull()
+
     private fun humanBytes(b: Long): String {
         val u = arrayOf("B","KB","MB","GB","TB")
         var v = b.toDouble(); var i = 0
@@ -164,4 +178,13 @@ class MonitorViewModel(
             .atZone(java.time.ZoneId.systemDefault())
             .toLocalTime()
             .toString()
+
+    companion object {
+        private val SERVICE_NAMES = mapOf(
+            53 to "DNS", 80 to "HTTP", 123 to "NTP", 143 to "IMAP",
+            443 to "HTTPS", 465 to "SMTPS", 587 to "SMTP", 993 to "IMAPS",
+            995 to "POP3S", 1935 to "RTMP", 3478 to "STUN", 3479 to "STUN",
+            5222 to "XMPP", 5223 to "XMPP-SSL", 5228 to "FCM", 8080 to "HTTP-ALT"
+        )
+    }
 }
