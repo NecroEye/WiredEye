@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,6 +39,19 @@ import com.muratcangzm.monitor.common.UiPacket
 import com.muratcangzm.monitor.utils.UsageAccess
 import org.koin.androidx.compose.koinViewModel
 import java.util.Locale
+
+// +++ ANIM imports
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
+import kotlinx.coroutines.delay
+// --- ANIM imports
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -122,11 +136,16 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
 @Composable
 private fun TechStatsBar(state: MonitorUiState, onWindowChange: (Long) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            StatChip("Total", humanBytes(state.totalBytes), Color(0xFF30E3A2))
-            StatChip("Apps", state.uniqueApps.toString(), Color(0xFF7BD7FF))
-            StatChip("PPS", String.format("%.1f", state.pps), Color(0xFFFFA6E7))
-            StatChip("KB/s", String.format("%.1f", state.throughputKbs), Color(0xFFBCE784))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // StatChip -> GlowingStatChip (3 sn değişmezse glow)
+            GlowingStatChip("Total", humanBytes(state.totalBytes), Color(0xFF30E3A2))
+            GlowingStatChip("Apps", state.uniqueApps.toString(), Color(0xFF7BD7FF))
+            GlowingStatChip("PPS", String.format("%.1f", state.pps), Color(0xFFFFA6E7))
+            GlowingStatChip("KB/s", String.format("%.1f", state.throughputKbs), Color(0xFFBCE784))
         }
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -136,9 +155,58 @@ private fun TechStatsBar(state: MonitorUiState, onWindowChange: (Long) -> Unit) 
     }
 }
 
+/**
+ * Değer 3 saniye boyunca değişmezse yumuşak glow animasyonu başlar.
+ * Değer değiştiğinde sayaç sıfırlanır ve glow gizlenir.
+ */
+@Composable
+private fun GlowingStatChip(label: String, value: String, accent: Color) {
+    var idle by remember { mutableStateOf(false) }
+    LaunchedEffect(value) {
+        idle = false
+        delay(3000)
+        idle = true
+    }
+
+    val infinite = rememberInfiniteTransition(label = "chipGlow")
+    val pulse by infinite.animateFloat(
+        initialValue = 0.20f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowPulse"
+    )
+
+    val glowAlpha = if (idle) pulse else 0f
+    val blurRadius = if (idle) 18f else 0f
+
+    Surface(
+        tonalElevation = 3.dp,
+        color = Color(0xFF101826),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.08f))
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text(label, color = Color(0xFF9EB2C0))
+            Text(
+                value,
+                style = MaterialTheme.typography.titleLarge.copy(
+                    shadow = Shadow(
+                        color = accent.copy(alpha = glowAlpha),
+                        offset = Offset.Zero,
+                        blurRadius = blurRadius
+                    )
+                ),
+                color = accent
+            )
+        }
+    }
+}
 @Composable
 private fun StatChip(label: String, value: String, accent: Color) {
-    Surface(tonalElevation = 3.dp, color = Color(0xFF101826), shape = RoundedCornerShape(16.dp)) {
+    Surface(tonalElevation = 3.dp, color = Color(0xFF101826), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, accent.copy(alpha = 0.08f))) {
         Column(Modifier.padding(12.dp)) {
             Text(label, color = Color(0xFF9EB2C0))
             Text(value, style = MaterialTheme.typography.titleLarge, color = accent)
@@ -185,7 +253,6 @@ private fun PacketList(
 ) {
     val listState = rememberLazyListState()
 
-    // Her UID için SADECE en yeni pinned öğeyi al
     val pinnedLatest = remember(items, pinnedUids) {
         val map = HashMap<Int, UiPacket>()
         for (it in items) {
@@ -206,7 +273,6 @@ private fun PacketList(
     ) {
         if (pinnedLatest.isNotEmpty()) {
             stickyHeader {
-                // Sticky: sadece içerik kadar yükseklik; arka plan ver ki alttaki öğeler görünmesin
                 Surface(
                     color = Color(0xFF0E141B),
                     tonalElevation = 6.dp,
@@ -219,11 +285,10 @@ private fun PacketList(
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
                         )
-                        // Kompakt satırlar: küçük kartlar, wrapContentHeight
                         pinnedLatest.forEach { r ->
                             PinnedRowCompact(
                                 row = r,
-                                onUnpin = { uid -> onPin(uid) },     // Toggle mantığı ViewModel’de
+                                onUnpin = { uid -> onPin(uid) },
                                 onShareWindowJson = onShareWindowJson
                             )
                             Spacer(Modifier.height(6.dp))
@@ -233,7 +298,6 @@ private fun PacketList(
             }
         }
 
-        // Ana akış
         items(items, key = { it.key }) { row ->
             PacketRow(
                 row = row,
