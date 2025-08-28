@@ -1,13 +1,17 @@
 package com.muratcangzm.monitor
 
 import android.annotation.SuppressLint
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -17,15 +21,20 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -34,9 +43,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -49,12 +61,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -63,26 +77,32 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muratcangzm.monitor.common.UiPacket
 import com.muratcangzm.monitor.utils.UsageAccess
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.distinctUntilChanged
+import java.io.File
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.max
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -141,16 +161,12 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                                     Text("Stop")
                                 }
                             }
-
                             TopAction.Settling -> {
                                 CircularProgressIndicator(
-                                    modifier = Modifier
-                                        .size(18.dp)
-                                        .padding(end = 10.dp),
+                                    modifier = Modifier.size(18.dp).padding(end = 10.dp),
                                     color = accent, strokeWidth = 2.dp
                                 )
                             }
-
                             TopAction.Idle -> {
                                 TextButton(onClick = {
                                     isStopping = false
@@ -190,11 +206,19 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                     onMinBytes = { vm.onEvent(MonitorUiEvent.SetMinBytes(it)) }
                 )
                 Spacer(Modifier.height(8.dp))
+
+                // ---- UiPacketAdapter ile diff’li, düşük-jank liste ----
+                val adapter = rememberUiPacketAdapter()
+                LaunchedEffect(state.items) {
+                    adapter.submit(state.items)
+                }
+
                 PacketList(
-                    items = state.items,
+                    adapterItems = adapter.items,
+                    rawItems = state.items,           // pinned header için
                     pinnedUids = state.pinnedUids,
                     onPin = { uid -> vm.onEvent(MonitorUiEvent.TogglePin(uid)) },
-                    onShareWindowJson = { shareWindowJson(ctx, state.items) }, // off-main
+                    onShareWindowJson = { shareWindowJson(ctx, state.items) },
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -243,7 +267,7 @@ private fun GlowingStatChip(label: String, value: String, accent: Color) {
         initialValue = 0.65f,
         targetValue = 1.6f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1100, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 1250, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "glowPulse"
@@ -279,6 +303,148 @@ private fun GlowingStatChip(label: String, value: String, accent: Color) {
     }
 }
 
+/* ---------- Ghostly Tech Filter Field (compact + unfocused daha belirgin) ---------- */
+
+@Composable
+private fun GhostFilterField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null
+) {
+    val accent = Color(0xFF7BD7FF)
+    val shape = RoundedCornerShape(12.dp)
+
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+
+    // Focus yokken de daha belirgin: 0.6 -> focus olduğunda 1.0
+    val glow by animateFloatAsState(
+        targetValue = if (focused) 1f else 0.6f,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "ghostGlow"
+    )
+
+    // Daha görünür kenar + hafif daha opak arka plan
+    val borderBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFF233355).copy(alpha = 0.65f * glow),
+            accent.copy(alpha = 0.55f * glow),
+            Color(0xFF233355).copy(alpha = 0.65f * glow)
+        )
+    )
+    val baseSurface = Color(0x22101826)
+
+    Surface(
+        modifier = modifier,
+        shape = shape,
+        tonalElevation = if (focused) 2.dp else 0.dp,
+        color = baseSurface,
+        border = BorderStroke(1.dp, borderBrush)
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            // LABEL: animasyonlu yazım efekti (8 sn'de bir; soldan sağa harf harf)
+            label = { GhostLabelAnimated(text = label) },
+            trailingIcon = trailing,
+            interactionSource = interaction,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { /* flow'a gidiyor */ }),
+            textStyle = MaterialTheme.typography.bodySmall, // daha kompakt metin
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                disabledContainerColor = Color.Transparent,
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+                disabledBorderColor = Color.Transparent,
+                errorBorderColor = Color.Transparent,
+                cursorColor = accent,
+                focusedTextColor = Color(0xFFDBEAFE),
+                unfocusedTextColor = Color(0xFFC9D6E2),
+                focusedLabelColor = accent,
+                unfocusedLabelColor = Color(0xFF9EB2C0).copy(alpha = 0.72f),
+                focusedPlaceholderColor = Color(0xFF9EB2C0),
+                unfocusedPlaceholderColor = Color(0xFF6B7C8F)
+            ),
+            shape = shape,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 38.dp)
+                .padding(horizontal = 2.dp, vertical = 1.dp)
+        )
+    }
+}
+
+/** Label için 8 saniyede bir tetiklenen typewriter efekti. Genişlik sabit kalsın diye görünmeyen kısmı alpha=0.0 ile yazıyoruz. */
+
+@Composable
+private fun GhostLabelAnimated(
+    text: String,
+    baseColor: Color = Color(0xFF9EB2C0).copy(alpha = 0.62f),
+    revealColor: Color = baseColor.copy(alpha = 0.98f),
+    tickMs: Long = 60L,               // harf atlama hızı
+    cyclePauseMs: Long = 6000L,       // 8 sn’de bir başa sar
+    edgeAnimMs: Int = 220             // geçiş harfi renk anim süresi
+) {
+    var visible by remember(text) { mutableIntStateOf(0) }
+    val edgeProgress = remember { Animatable(0f) } // 0..1
+
+    LaunchedEffect(text) {
+        while (true) {
+            for (i in 0..text.length) {
+                visible = i
+                delay(tickMs)
+            }
+            delay(cyclePauseMs)
+            visible = 0
+        }
+    }
+
+    // Geçişteki (sınırdaki) harfin rengi için animasyonu her adımda baştan çalıştır
+    LaunchedEffect(visible) {
+        if (visible > 0) {
+            edgeProgress.snapTo(0f)
+            edgeProgress.animateTo(1f, animationSpec = tween(edgeAnimMs))
+        } else {
+            edgeProgress.snapTo(0f)
+        }
+    }
+
+    val dimColor = baseColor.copy(alpha = 0.35f)
+    val edgeColor = lerp(start = dimColor, stop = revealColor, fraction = edgeProgress.value)
+
+    val annotated = remember(visible, text, dimColor, revealColor, edgeColor) {
+        buildAnnotatedString {
+            // Tamamen ortaya çıkmış kısım
+            if (visible > 1) {
+                withStyle(SpanStyle(color = revealColor)) {
+                    append(text.substring(0, visible - 1))
+                }
+            }
+            // Geçişteki tek harf (renk animasyonlu)
+            if (visible in 1..text.length) {
+                withStyle(SpanStyle(color = edgeColor)) {
+                    append(text[visible - 1].toString())
+                }
+            }
+            // Geri kalan sönük kısım
+            if (visible < text.length) {
+                withStyle(SpanStyle(color = dimColor)) {
+                    append(text.substring(visible))
+                }
+            }
+        }
+    }
+
+    Text(annotated)
+}
+
+/* -------------------------------------------------------------------- */
+
 @Composable
 private fun Segmented(
     options: List<Pair<String, Long>>,
@@ -286,13 +452,10 @@ private fun Segmented(
     onSelect: (Long) -> Unit
 ) {
     val density = LocalDensity.current
-
-    // derived to avoid redundant recompositions
     val selectedIndex by remember(options, selected) {
         derivedStateOf { options.indexOfFirst { it.second == selected }.let { if (it >= 0) it else 0 } }
     }
 
-    // measurement caches
     val xs = remember(options) { mutableStateListOf<Float>().apply { repeat(options.size) { add(0f) } } }
     val ws = remember(options) { mutableStateListOf<Float>().apply { repeat(options.size) { add(0f) } } }
     val hs = remember(options) { mutableStateListOf<Float>().apply { repeat(options.size) { add(0f) } } }
@@ -301,7 +464,6 @@ private fun Segmented(
     val targetW = ws.getOrNull(selectedIndex) ?: 0f
     val targetH = hs.getOrNull(selectedIndex) ?: 0f
 
-    // fallback values to avoid "ilk frame boş" hissi
     val fallbackH = with(density) { 28.dp.toPx() }
     val fallbackW = with(density) { 42.dp.toPx() }
 
@@ -318,7 +480,6 @@ private fun Segmented(
             .background(bg)
             .padding(3.dp)
     ) {
-        // animated indicator
         Surface(
             color = indicatorColor,
             shape = RoundedCornerShape(10.dp),
@@ -360,20 +521,127 @@ private fun Segmented(
     }
 }
 
+/* ----------------------------- UI PACKET ADAPTER (DIFF) ----------------------------- */
+
+private data class UiPacketItem(
+    val id: String,           // stabilized render id (unique in list)
+    val model: UiPacket,
+    val contentHash: Int      // cheap hash to detect visual changes
+)
+
+/** Basit ve hızlı: remove, insert/move ve content update uygular. */
+private class UiPacketAdapter {
+    val items = mutableStateListOf<UiPacketItem>()
+
+    fun submit(models: List<UiPacket>) {
+        // 1) Stabil, duplicate-safe id üret (senin eski yaklaşımı koruyarak)
+        val seen = HashMap<String, Int>(max(16, models.size))
+        val newProjected = ArrayList<UiPacketItem>(models.size)
+
+        // Eski öğeleri id->item map olarak sakla, referans reuse için
+        val oldById = HashMap<String, UiPacketItem>(items.size)
+        items.forEach { oldById[it.id] = it }
+
+        for (m in models) {
+            val n = (seen[m.key] ?: 0) + 1
+            seen[m.key] = n
+            val id = "${m.key}#$n"
+
+            val ch = fastContentHash(m)
+            val reused = oldById[id]?.takeIf { it.contentHash == ch }
+            if (reused != null) {
+                newProjected.add(reused)
+            } else {
+                newProjected.add(UiPacketItem(id = id, model = m, contentHash = ch))
+            }
+        }
+
+        // 2) Diff uygula: önce eski listeden artık olmayanları sil
+        val newIds = newProjected.mapTo(HashSet(newProjected.size)) { it.id }
+        for (i in items.lastIndex downTo 0) {
+            if (!newIds.contains(items[i].id)) {
+                items.removeAt(i)
+            }
+        }
+
+        // 3) Ardından ekle/taşı ve içerik güncelle
+        var i = 0
+        while (i < newProjected.size) {
+            val desired = newProjected[i]
+            if (i >= items.size) {
+                items.add(desired)
+            } else {
+                val current = items[i]
+                if (current.id == desired.id) {
+                    // Aynı id; content değişmişse replace et
+                    if (current.contentHash != desired.contentHash || current.model !== desired.model) {
+                        items[i] = desired
+                    }
+                } else {
+                    // Listedeki başka yerde mi? taşı
+                    val existingIndex = items.indexOfFirst { it.id == desired.id }
+                    if (existingIndex >= 0) {
+                        val moved = items.removeAt(existingIndex)
+                        items.add(i, moved)
+                        // contentHash eskiyse zaten reused; değilse desired ile replace
+                        if (moved.contentHash != desired.contentHash || moved.model !== desired.model) {
+                            items[i] = desired
+                        }
+                    } else {
+                        items.add(i, desired)
+                    }
+                }
+            }
+            i++
+        }
+        // 4) newProjected’ten kısa kaldıysa sondakileri temizle
+        while (items.size > newProjected.size) {
+            items.removeAt(items.lastIndex)
+        }
+    }
+
+    /** Görseli etkileyen alanlardan ucuz bir hash: timestamp, bytes, proto, from/to, app metni. */
+    private fun fastContentHash(m: UiPacket): Int {
+        var h = 17
+        h = 31 * h + (m.raw.timestamp xor (m.raw.timestamp ushr 32)).toInt()
+        h = 31 * h + (m.raw.bytes xor (m.raw.bytes ushr 32)).toInt()
+        h = 31 * h + m.proto.hashCode()
+        h = 31 * h + m.from.hashCode()
+        h = 31 * h + m.to.hashCode()
+        h = 31 * h + m.app.hashCode()
+        return h
+    }
+}
+
+@Composable
+private fun rememberUiPacketAdapter(): UiPacketAdapter {
+    return remember { UiPacketAdapter() }
+}
+
+/* ----------------------------- /UI PACKET ADAPTER ----------------------------- */
+
 @Composable
 private fun FilterBar(text: String, minBytes: Long, onText: (String) -> Unit, onClear: () -> Unit, onMinBytes: (Long) -> Unit) {
+    val focusManager = LocalFocusManager.current
+    val keyboardVisible by rememberKeyboardVisible()
+    LaunchedEffect(keyboardVisible) {
+        if (!keyboardVisible) {
+            focusManager.clearFocus(force = false)
+        }
+    }
+
     Column(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
     ) {
-        OutlinedTextField(
+        GhostFilterField(
             value = text,
             onValueChange = onText,
+            label = "Filter (app/ip/port/protocol)",
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Filter (app/ip/port/protocol)") },
-            singleLine = true,
-            trailingIcon = { if (text.isNotBlank()) TextButton(onClick = onClear) { Text("Clear") } })
+            trailing = { if (text.isNotBlank()) TextButton(onClick = onClear) { Text("Clear") } }
+        )
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Min bytes:", color = Color(0xFF9EB2C0), modifier = Modifier.padding(end = 8.dp))
@@ -391,7 +659,8 @@ private fun FilterBar(text: String, minBytes: Long, onText: (String) -> Unit, on
 
 @Composable
 private fun PacketList(
-    items: List<UiPacket>,
+    adapterItems: List<UiPacketItem>,
+    rawItems: List<UiPacket>,
     pinnedUids: Set<Int>,
     onPin: (Int) -> Unit,
     onShareWindowJson: () -> Unit,
@@ -399,20 +668,10 @@ private fun PacketList(
 ) {
     val listState = rememberLazyListState()
 
-    // stabilize render keys once per 'items' emission
-    val keyedItems = remember(items) {
-        val seen = mutableMapOf<String, Int>()
-        items.map { r ->
-            val n = (seen[r.key] ?: 0) + 1
-            seen[r.key] = n
-            r to "${r.key}#$n"
-        }
-    }
-
-    // header -> only newest for each pinned uid
-    val pinnedLatest = remember(items, pinnedUids) {
+    // Sticky header için her UID’in en yeni pinned kaydı (rawItems üzerinden)
+    val pinnedLatest = remember(rawItems, pinnedUids) {
         val map = HashMap<Int, UiPacket>()
-        for (it in items) {
+        for (it in rawItems) {
             val uid = it.raw.uid ?: -1
             if (uid in pinnedUids && uid >= 0) {
                 val curr = map[uid]
@@ -461,11 +720,11 @@ private fun PacketList(
             }
         }
         items(
-            items = keyedItems,
-            key = { it.second }
-        ) { (row, _) ->
+            items = adapterItems,
+            key = { it.id }
+        ) { item ->
             PacketRow(
-                row = row,
+                row = item.model,
                 onPin = onPin,
                 onShareWindowJson = onShareWindowJson,
                 modifier = Modifier
@@ -529,22 +788,18 @@ private fun PacketRow(
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f).padding(end = 16.dp)) {
                     Text(row.app, style = MaterialTheme.typography.titleMedium, color = Color(0xFF7BD7FF), maxLines = 3, overflow = TextOverflow.Ellipsis)
                     val uidText = "uid:${row.raw.uid ?: -1}"
                     val pkgText = row.raw.packageName ?: "—"
-                    Text("$pkgText  •  $uidText", style = MaterialTheme.typography.labelMedium, color = Color(0xFF8EA0B5), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("$pkgText  •  $uidText", style = MaterialTheme.typography.labelMedium, color = Color(0xFF8EA0B5), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 Text(row.time, color = Color(0xFF9EB2C0), style = MaterialTheme.typography.labelLarge)
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val dirLabel = when (dir) {
-                    Direction.TX -> "TX"; Direction.RX -> "RX"; Direction.MIX -> "MIX"; null -> "—"
-                }
-                val dirColor = when (dir) {
-                    Direction.TX -> Color(0xFFFFB86C); Direction.RX -> Color(0xFF7BD7FF); Direction.MIX -> Color(0xFFBCE784); null -> Color(0xFF9EB2C0)
-                }
+                val dirLabel = when (dir) { Direction.TX -> "TX"; Direction.RX -> "RX"; Direction.MIX -> "MIX"; null -> "—" }
+                val dirColor = when (dir) { Direction.TX -> Color(0xFFFFB86C); Direction.RX -> Color(0xFF7BD7FF); Direction.MIX -> Color(0xFFBCE784); null -> Color(0xFF9EB2C0) }
                 Text(row.proto, color = Color(0xFF30E3A2), style = MaterialTheme.typography.bodyMedium)
                 Text("•", color = Color(0xFF8EA0B5), style = MaterialTheme.typography.bodyMedium)
                 Text(dirLabel, color = dirColor, style = MaterialTheme.typography.bodyMedium)
@@ -588,23 +843,63 @@ private fun Mono(text: String) {
     Text(text, color = Color(0xFFB8C8D8), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
 }
 
-/** Ağır JSON üretimini arkaplanda yap, UI thread’de share başlat. */
-private fun shareWindowJson(ctx: Context, items: List<UiPacket>) {
-    CoroutineScope(Dispatchers.Default).launch {
-        val content = buildJson(items)
-        withContext(Dispatchers.Main) {
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "application/json"
-                putExtra(Intent.EXTRA_SUBJECT, "WiredEye Snapshot (JSON)")
-                putExtra(Intent.EXTRA_TEXT, content)
-            }
-            ctx.startActivity(Intent.createChooser(send, "Share snapshot"))
+/* ----------------------------- SHARE JSON (FileProvider) ----------------------------- */
+
+private const val LARGE_SHARE_THRESHOLD = 150_000 // byte
+
+private fun shareWindowJson(ctx: android.content.Context, items: List<UiPacket>) {
+    runCatching {
+        val json = buildJson(items)
+        val dir = File(ctx.cacheDir, "exports").apply { mkdirs() }
+        val file = File(dir, "wiredeye_${System.currentTimeMillis()}.json")
+        file.writeText(json)
+
+        // 2) FileProvider URI'si üret
+        val authority = ctx.applicationContext.packageName + ".fileprovider"
+        val uri = FileProvider.getUriForFile(ctx, authority, file)
+
+        // 3) ACTION_SEND + EXTRA_STREAM + okuma izni
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "application/json"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = ClipData.newUri(ctx.contentResolver, file.name, uri)
+        }
+
+        // 4) Potansiyel alıcılara önceden izin ver (güvenilirlik artar)
+        val resInfo = ctx.packageManager.queryIntentActivities(send, PackageManager.MATCH_DEFAULT_ONLY)
+        for (ri in resInfo) {
+            ctx.grantUriPermission(
+                ri.activityInfo.packageName,
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+
+        ctx.startActivity(Intent.createChooser(send, "Share snapshot"))
+    }.onFailure {
+        val fallback = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, buildJson(items))
+        }
+        try {
+            ctx.startActivity(Intent.createChooser(fallback, "Share snapshot"))
+        } catch (_: Exception) {
+            // burada senin gösterdiğin "sharing failed" tostu devreye girer
         }
     }
 }
 
+private fun writeJsonAndGetUri(ctx: Context, json: String): android.net.Uri {
+    val file = File(ctx.cacheDir, "wiredeye_snapshot_${System.currentTimeMillis()}.json")
+    file.writeText(json, Charsets.UTF_8)
+    // Manifest’te provider authority: ${applicationId}.fileprovider
+    val authority = ctx.packageName + ".fileprovider"
+    return FileProvider.getUriForFile(ctx, authority, file)
+}
+
 private fun buildJson(items: List<UiPacket>): String {
-    val sb = StringBuilder(items.size * 128) // küçük bir ön-tahmin
+    val sb = StringBuilder(items.size * 128)
     sb.append('[')
     items.forEachIndexed { i, r ->
         val m = r.raw
@@ -637,13 +932,12 @@ private fun String.escapeJson(): String =
         }
     }
 
+/* ----------------------------- /SHARE JSON ----------------------------- */
+
 private fun humanBytes(b: Long): String {
     val u = arrayOf("B", "KB", "MB", "GB", "TB")
-    var v = b.toDouble();
-    var i = 0
-    while (v >= 1024 && i < u.lastIndex) {
-        v /= 1024; i++
-    }
+    var v = b.toDouble(); var i = 0
+    while (v >= 1024 && i < u.lastIndex) { v /= 1024; i++ }
     return String.format(Locale.getDefault(), "%.1f %s", v, u[i])
 }
 
@@ -666,4 +960,20 @@ private fun rememberQuiescent(
         quiet.value = (abs(pps) < ppsThreshold && abs(kbs) < kbsThreshold)
     }
     return quiet
+}
+
+/* ----------------------------- Keyboard visibility helper ----------------------------- */
+
+@Composable
+private fun rememberKeyboardVisible(): State<Boolean> {
+    val density = LocalDensity.current
+    val ime = WindowInsets.ime
+    val visible = remember { mutableStateOf(false) }
+
+    LaunchedEffect(ime, density) {
+        snapshotFlow { ime.getBottom(density) > 0 }
+            .distinctUntilChanged()
+            .collect { isOpen -> visible.value = isOpen }
+    }
+    return visible
 }
