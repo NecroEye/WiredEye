@@ -40,6 +40,7 @@ dependencies {
     // --- Serialization & Okio ---
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okio)
+    implementation(libs.okhttp)
 
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.workmanager)
