@@ -26,7 +26,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,9 +43,10 @@ import org.koin.androidx.compose.koinViewModel
 fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var startRequested by rememberSaveable { mutableStateOf(false) }
     var isStopping by rememberSaveable { mutableStateOf(false) }
+
     DisposableEffect(lifecycleOwner, startRequested) {
         val obs = LifecycleEventObserver { _, e ->
             if (e == Lifecycle.Event.ON_RESUME && startRequested) {
@@ -57,9 +57,15 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
         lifecycleOwner.lifecycle.addObserver(obs)
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
+
     LaunchedEffect(state.isEngineRunning) { if (!state.isEngineRunning) isStopping = false }
+
     val accent = Color(0xFF7BD7FF)
     val bg = Brush.linearGradient(listOf(Color(0xFF0E141B), Color(0xFF0B1022), Color(0xFF0E141B)))
+
+    val startEnabled = !state.isEngineRunning && state.pps == 0.0
+    val startAlpha = if (startEnabled) 1f else 0.35f
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -75,17 +81,25 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                                 strokeWidth = 2.dp
                             )
                         } else {
-                            TextButton(onClick = { isStopping = true; vm.onEvent(MonitorUiEvent.StopEngine) }) { Text("Stop") }
+                            TextButton(onClick = { isStopping = true; vm.onEvent(MonitorUiEvent.StopEngine) }) {
+                                Text("Stop", textAlign = TextAlign.Center)
+                            }
                         }
                     } else {
-                        TextButton(onClick = {
-                            if (!UsageAccess.isGranted(ctx)) {
-                                startRequested = true
-                                UsageAccess.openSettings(ctx)
-                            } else {
-                                vm.onEvent(MonitorUiEvent.StartEngine)
-                            }
-                        }) { Text("Start") }
+                        TextButton(
+                            onClick = {
+                                if (!UsageAccess.isGranted(ctx)) {
+                                    startRequested = true
+                                    UsageAccess.openSettings(ctx)
+                                } else {
+                                    vm.onEvent(MonitorUiEvent.StartEngine)
+                                }
+                            },
+                            enabled = startEnabled,
+                            modifier = Modifier.alpha(startAlpha)
+                        ) {
+                            Text("Start", textAlign = TextAlign.Center)
+                        }
                     }
                 }
             )
@@ -130,7 +144,11 @@ private fun TechStatsBar(state: MonitorUiState, onWindowChange: (Long) -> Unit) 
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Window:", color = Color(0xFF9EB2C0), modifier = Modifier.alpha(0.9f))
-            Segmented(options = listOf("5s" to 5_000L, "10s" to 10_000L, "30s" to 30_000L), selected = state.windowMillis, onSelect = onWindowChange)
+            Segmented(
+                options = listOf("5s" to 5_000L, "10s" to 10_000L, "30s" to 30_000L),
+                selected = state.windowMillis,
+                onSelect = onWindowChange
+            )
         }
     }
 }
@@ -151,7 +169,8 @@ private fun Segmented(options: List<Pair<String, Long>>, selected: Long, onSelec
         Modifier
             .clip(RoundedCornerShape(12.dp))
             .background(Color(0xFF0E1624))
-            .padding(3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         options.forEach { (label, value) ->
             val active = value == selected
@@ -164,18 +183,17 @@ private fun Segmented(options: List<Pair<String, Long>>, selected: Long, onSelec
 
 @Composable
 private fun FilterBar(text: String, minBytes: Long, onText: (String) -> Unit, onClear: () -> Unit, onMinBytes: (Long) -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-    ) {
+    Column(Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 12.dp)) {
         OutlinedTextField(
             value = text,
             onValueChange = onText,
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Filter (app/ip/port/protocol)") },
             singleLine = true,
-            trailingIcon = { if (text.isNotBlank()) TextButton(onClick = onClear) { Text("Clear") } })
+            trailingIcon = { if (text.isNotBlank()) TextButton(onClick = onClear) { Text("Clear") } }
+        )
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Min bytes:", color = Color(0xFF9EB2C0), modifier = Modifier.padding(end = 8.dp))
@@ -237,7 +255,6 @@ private fun PacketRow(row: UiPacket, modifier: Modifier = Modifier) {
         }
     }
 }
-
 
 @Composable
 private fun Mono(text: String) {

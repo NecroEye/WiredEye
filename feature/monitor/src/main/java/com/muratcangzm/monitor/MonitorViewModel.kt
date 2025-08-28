@@ -9,6 +9,7 @@ import com.muratcangzm.monitor.common.UiPacket
 import com.muratcangzm.network.engine.EngineState
 import com.muratcangzm.network.engine.PacketCaptureEngine
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
@@ -40,6 +42,10 @@ class MonitorViewModel(
     private val windowStream: Flow<List<PacketMeta>> =
         windowMillis.flatMapLatest { repo.liveWindow(it) }
 
+    // pencere listesini elde tut (tick ile tekrar kullanacağız)
+    private val windowCache: StateFlow<List<PacketMeta>> =
+        windowStream.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     init {
         viewModelScope.launch {
             engine.events.collect { meta ->
@@ -63,7 +69,7 @@ class MonitorViewModel(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Controls(10_000L, "", 0L))
 
     private val itemsFlow: StateFlow<List<UiPacket>> =
-        combine(windowStream, controls) { list, c ->
+        combine(windowCache, controls) { list, c ->
             list.filter { it.bytes >= c.minB && matchesFilter(it, c.filter) }
                 .asReversed()
                 .map { it.toUiPacket() }
@@ -72,16 +78,27 @@ class MonitorViewModel(
             .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val statsFlow: StateFlow<Stats> =
-        combine(windowStream, controls) { list, c ->
-            val f = list.filter { it.bytes >= c.minB && matchesFilter(it, c.filter) }
-            val pps = if (c.win > 0) f.size / (c.win / 1000.0) else 0.0
-            Stats(totalAllTime.value, seenApps.value.size, pps)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Stats(0L, 0, 0.0))
+    // UI'yi sürmek için düzenli tick (engine durduğunda pps'in 0'a düşmesi için)
+    private fun ticker(periodMs: Long) = flow {
+        while (true) {
+            emit(Unit)
+            delay(periodMs)
+        }
+    }
 
     private val isRunningFlow: StateFlow<Boolean> =
         engineState.map { it is EngineState.Running }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    private val statsFlow: StateFlow<Stats> =
+        combine(windowCache, controls, isRunningFlow, ticker(250)) { list, c, _, _ ->
+            val nowCutoff = System.currentTimeMillis() - c.win
+            val f = list.filter {
+                it.timestamp >= nowCutoff && it.bytes >= c.minB && matchesFilter(it, c.filter)
+            }
+            val pps = if (c.win > 0) f.size / (c.win / 1000.0) else 0.0
+            Stats(totalAllTime.value, seenApps.value.size, pps)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Stats(0L, 0, 0.0))
 
     val uiState: StateFlow<MonitorUiState> =
         combine(itemsFlow, controls, isRunningFlow, statsFlow) { items, c, running, s ->
