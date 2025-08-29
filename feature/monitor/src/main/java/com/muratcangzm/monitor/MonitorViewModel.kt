@@ -57,25 +57,55 @@ class MonitorViewModel(
         }.distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Controls(10_000L, "", 0L))
 
+    /** ---- LISTE: toplu görünüm (uid + package + protocol) ---- */
     @OptIn(FlowPreview::class)
     private val itemsFlow: StateFlow<List<UiPacket>> =
         combine(windowStream, controls, pinnedUids, mutedUids) { list, c, pins, mutes ->
-            val filtered = list.filter { it.bytes >= c.minB && matchesFilter(it, c.filter) }
+            // 1) filtre + mute
+            val filtered = list
+                .filter { it.bytes >= c.minB && matchesFilter(it, c.filter) }
                 .filter { it.uid == null || !mutes.contains(it.uid!!) }
 
-            val ui = filtered.asReversed().map { it.toUiPacket() }
+            // 2) grupla
+            val grouped: Map<String, List<PacketMeta>> = filtered.groupBy { aggKey(it) }
 
+            // 3) her grup için tek UiPacket üret (toplam bytes, en son zaman)
+            val ui = grouped.values.map { bucket ->
+                val latest = bucket.maxByOrNull { it.timestamp }!!
+                val totalBytes = bucket.sumOf { it.bytes }
+
+                val uid = latest.uid
+                val pkg = latest.packageName ?: uid?.let { safePackage(it) } ?: ""
+                val label = uid?.let { safeLabel(it) } ?: ""
+
+                // "AGG" protokollü sentetik meta (from/to boş dursun)
+                val aggMeta = latest.copy(
+                    protocol = "AGG",
+                    localAddress = "-",
+                    localPort = 0,
+                    remoteAddress = "-",
+                    remotePort = 0,
+                    bytes = totalBytes
+                )
+
+                val stableKey = "AGG|${uid ?: -1}|$pkg|$label"
+                aggMeta.toUiPacket(customKey = stableKey)
+            }
+
+            // 4) sıralama: pinned → bytes desc → time desc
             ui.sortedWith(
                 compareByDescending<UiPacket> { pkt ->
                     val uid = pkt.raw.uid
                     uid != null && pins.contains(uid)
-                }.thenByDescending { it.raw.timestamp }
+                }.thenByDescending { it.raw.bytes }
+                    .thenByDescending { it.raw.timestamp }
             )
         }
             .sample(350)
             .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** ---- İstatistikler: ham olaylardan hesap (PPS/KBS doğru kalsın) ---- */
     private val statsFlow: StateFlow<Stats> =
         combine(windowStream, controls) { list, c ->
             val f = list.filter { it.bytes >= c.minB && matchesFilter(it, c.filter) }
@@ -128,7 +158,16 @@ class MonitorViewModel(
         mutedUids.value = if (cur.contains(uid)) cur - uid else cur + uid
     }
 
-    private fun PacketMeta.toUiPacket(): UiPacket {
+    /** ---- Yardımcılar ---- */
+
+    private fun aggKey(m: PacketMeta): String {
+        val uidPart = m.uid?.toString() ?: "-"
+        val pkgPart = m.packageName ?: (m.uid?.let { safePackage(it) } ?: "")
+        val protoPart = m.protocol.uppercase(Locale.getDefault())
+        return "$uidPart|$pkgPart|$protoPart"
+    }
+
+    private fun PacketMeta.toUiPacket(customKey: String? = null): UiPacket {
         val uidStr = uid?.toString() ?: "?"
         val pkg = packageName ?: uid?.let { safePackage(it) } ?: ""
         val label = uid?.let { safeLabel(it) } ?: ""
@@ -138,8 +177,10 @@ class MonitorViewModel(
             pkg.isNotBlank() -> "$pkg (uid:$uidStr)"
             else -> "uid:$uidStr"
         }
+
         val local = if (localAddress == "-" || localPort <= 0) "—" else "$localAddress:$localPort"
         val remote = if (remoteAddress == "-" || remotePort <= 0) "—" else "$remoteAddress:$remotePort"
+
         val transport = protocol.uppercase(Locale.getDefault())
         val port = when {
             remotePort > 0 -> remotePort
@@ -148,8 +189,9 @@ class MonitorViewModel(
         }
         val svc = SERVICE_NAMES[port]
         val protoPretty = if (svc != null && port > 0) "$transport • $svc:$port" else transport
+
         return UiPacket(
-            key = "$timestamp:$uidStr:$bytes:$localPort:$remotePort:$localAddress:$remoteAddress",
+            key = customKey ?: "$timestamp:$uidStr:$bytes:$localPort:$remotePort:$localAddress:$remoteAddress",
             time = formatTime(timestamp),
             app = appText,
             proto = protoPretty,
