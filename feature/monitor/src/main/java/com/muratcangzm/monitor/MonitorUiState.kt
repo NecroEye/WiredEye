@@ -2,6 +2,7 @@ package com.muratcangzm.monitor
 
 import com.muratcangzm.monitor.common.SpeedMode
 import com.muratcangzm.monitor.common.UiPacket
+import com.muratcangzm.monitor.common.ViewMode
 
 data class MonitorUiState(
     val isEngineRunning: Boolean = false,
@@ -14,5 +15,6 @@ data class MonitorUiState(
     val pps: Double = 0.0,
     val throughputKbs: Double = 0.0,
     val pinnedUids: Set<Int> = emptySet(),
-    val speedMode: SpeedMode = SpeedMode.FAST
+    val speedMode: SpeedMode = SpeedMode.ECO,
+    val viewMode: ViewMode = ViewMode.RAW,
 )

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -15,8 +16,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -45,12 +48,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -81,10 +86,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.FirstBaseline
@@ -109,6 +116,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muratcangzm.monitor.common.UiPacket
+import com.muratcangzm.monitor.common.ViewMode
 import com.muratcangzm.monitor.utils.UsageAccess
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -116,6 +124,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -152,7 +161,10 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text(
                             text = "WiredEye — Realtime Metadata",
                             maxLines = 1,
@@ -202,13 +214,12 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         LiveDotGhost(
                                             running = state.isEngineRunning,
-                                            modifier = Modifier.padding(start = 4.dp ,end = 12.dp)
+                                            modifier = Modifier.padding(start = 4.dp, end = 12.dp)
                                         )
                                         Text("Stop")
                                     }
                                 }
                             }
-
                             TopAction.Settling -> {
                                 CircularProgressIndicator(
                                     modifier = Modifier
@@ -217,10 +228,9 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                                     color = accent, strokeWidth = 2.dp
                                 )
                             }
-
                             TopAction.Idle -> {
                                 TextButton(onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress) // 7) hafif haptic
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     isStopping = false
                                     if (!UsageAccess.isGranted(ctx)) {
                                         startRequested = true
@@ -237,7 +247,6 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                 }
             )
         },
-        // 6) M3 Snackbar host
         snackbarHost = { SnackbarHost(hostState = snackbarHost) }
     ) { padd ->
         Box(
@@ -249,7 +258,10 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
             Column(Modifier.fillMaxSize()) {
                 TechStatsBar(
                     state = state,
-                    onWindowChange = { vm.onEvent(MonitorUiEvent.SetWindow(it)) }
+                    onWindowChange = { vm.onEvent(MonitorUiEvent.SetWindow(it)) },
+                    onSpeedChange = { mode -> vm.onEvent(MonitorUiEvent.SetSpeed(mode)) },
+                    viewMode = state.viewMode,
+                    onViewModeChange = { mode -> vm.onEvent(MonitorUiEvent.SetViewMode(mode)) }
                 )
                 Spacer(Modifier.height(8.dp))
                 FilterBar(
@@ -261,24 +273,23 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                 )
                 Spacer(Modifier.height(8.dp))
 
-                // ---- UiPacketAdapter ile diff’li, düşük-jank liste ----
                 val adapter = rememberUiPacketAdapter()
                 LaunchedEffect(state.items) { adapter.submit(state.items) }
 
                 PacketList(
-                    isRunning = state.isEngineRunning,             // 5) empty state için
+                    isRunning = state.isEngineRunning,
                     adapterItems = adapter.items,
                     rawItems = state.items,
                     pinnedUids = state.pinnedUids,
                     onPin = { uid ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress) // 7) hafif haptic
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         vm.onEvent(MonitorUiEvent.TogglePin(uid))
                     },
                     onShareWindowJson = {
-                        shareWindowJson(ctx, state.items, snackbarHost, scope)     // 6) share fail -> snackbar
+                        shareWindowJson(ctx, state.items, snackbarHost, scope)
                     },
                     onCopied = { what ->
-                        scope.launch { snackbarHost.showSnackbar("$what copied") } // 4) kopyalama bildirimi
+                        scope.launch { snackbarHost.showSnackbar("$what copied") }
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     },
                     modifier = Modifier.weight(1f)
@@ -293,7 +304,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
 fun LiveDotGhost(
     running: Boolean,
     modifier: Modifier = Modifier,
-    color: Color = Color(0xFF7BD7FF)   // aksan rengi
+    color: Color = Color(0xFF7BD7FF)
 ) {
     val inf = rememberInfiniteTransition(label = "live-dot")
     val pulse by inf.animateFloat(
@@ -305,43 +316,31 @@ fun LiveDotGhost(
         ),
         label = "pulse"
     )
-
-    // Çalışmıyorken animasyonu görünmezleştir
     val p = if (running) pulse else 0f
-
-    Canvas(
-        modifier
-            .size(10.dp)                   // küçük ve taşmıyor
-    ) {
+    Canvas(modifier.size(10.dp)) {
         val r = size.minDimension / 2f
-
-        drawCircle(
-            color = color.copy(alpha = 0.22f * (1f - p) + 0.04f),
-            radius = r * (1.6f + p * 1.0f)
-        )
-        drawCircle(
-            color = color.copy(alpha = 0.14f * (1f - p)),
-            radius = r * (2.1f + p * 0.7f)
-        )
-
-        // vurgu halkası (ince stroke)
+        drawCircle(color = color.copy(alpha = 0.22f * (1f - p) + 0.04f), radius = r * (1.6f + p * 1.0f))
+        drawCircle(color = color.copy(alpha = 0.14f * (1f - p)), radius = r * (2.1f + p * 0.7f))
         drawCircle(
             color = color.copy(alpha = 0.18f * (1f - p)),
             radius = r * (1.3f + p * 1.2f),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = r * 0.28f)
+            style = Stroke(width = r * 0.28f)
         )
-
-        // merkez nokta
-        drawCircle(
-            color = color.copy(alpha = 0.95f),
-            radius = r * (0.78f + p * 0.06f) // çok hafif nefes
-        )
+        drawCircle(color = color.copy(alpha = 0.95f), radius = r * (0.78f + p * 0.06f))
     }
 }
 
 @SuppressLint("DefaultLocale")
 @Composable
-private fun TechStatsBar(state: MonitorUiState, onWindowChange: (Long) -> Unit) {
+private fun TechStatsBar(
+    state: MonitorUiState,
+    onWindowChange: (Long) -> Unit,
+    onSpeedChange: (com.muratcangzm.monitor.common.SpeedMode) -> Unit,
+    viewMode: com.muratcangzm.monitor.common.ViewMode,
+    onViewModeChange: (com.muratcangzm.monitor.common.ViewMode) -> Unit
+) {
+    var speedExpanded by rememberSaveable { mutableStateOf(false) }
+
     Column(
         Modifier
             .fillMaxWidth()
@@ -357,11 +356,391 @@ private fun TechStatsBar(state: MonitorUiState, onWindowChange: (Long) -> Unit) 
             GlowingStatChip("PPS", String.format("%.1f", state.pps), Color(0xFFFFA6E7))
             GlowingStatChip("KB/s", String.format("%.1f", state.throughputKbs), Color(0xFFBCE784))
         }
+
         Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Window:", color = Color(0xFF9EB2C0), modifier = Modifier.alpha(0.9f))
-            Segmented(options = listOf("5s" to 5_000L, "10s" to 10_000L, "30s" to 30_000L), selected = state.windowMillis, onSelect = onWindowChange)
+
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 0.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            item {
+                Text("Window:", color = Color(0xFF9EB2C0), modifier = Modifier.alpha(0.9f))
+            }
+            item {
+                Segmented(
+                    options = listOf("5s" to 5_000L, "10s" to 10_000L, "30s" to 30_000L),
+                    selected = state.windowMillis,
+                    onSelect = onWindowChange
+                )
+            }
+            item {
+                GhostTonalButton(
+                    text = when (state.speedMode) {
+                        com.muratcangzm.monitor.common.SpeedMode.ECO   -> "Eco"
+                        com.muratcangzm.monitor.common.SpeedMode.FAST  -> "Fast"
+                        com.muratcangzm.monitor.common.SpeedMode.TURBO -> "Turbo"
+                    },
+                    icon = "⚡",
+                    active = speedExpanded,
+                    mode = state.speedMode,
+                    onClick = { speedExpanded = !speedExpanded }
+                )
+            }
+            item {
+                GhostViewModeAnchor(
+                    mode = viewMode,
+                    onChange = onViewModeChange
+                )
+            }
         }
+
+        AnimatedVisibility(
+            visible = speedExpanded,
+            enter = fadeIn(tween(180)) + expandVertically(tween(220)),
+            exit  = fadeOut(tween(160)) + shrinkVertically(tween(200))
+        ) {
+            SpeedModePanel(
+                selected = state.speedMode,
+                onSelect = {
+                    onSpeedChange(it)
+                    speedExpanded = false
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun GhostTonalButton(
+    text: String,
+    icon: String? = null,
+    active: Boolean,
+    mode: com.muratcangzm.monitor.common.SpeedMode,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val accent = Color(0xFF7BD7FF)
+    val shape = RoundedCornerShape(10.dp)
+
+    val glow by animateFloatAsState(
+        targetValue = if (active) 1f else 0.55f,
+        animationSpec = tween(180, easing = FastOutSlowInEasing),
+        label = "ghost-btn-glow"
+    )
+
+    val baseBorder = Brush.linearGradient(
+        listOf(
+            Color(0xFF233355).copy(alpha = 0.65f * glow),
+            accent.copy(alpha = 0.55f * glow),
+            Color(0xFF233355).copy(alpha = 0.65f * glow)
+        )
+    )
+
+    val (durationMs, highlightColor, bandFraction) = when (mode) {
+        com.muratcangzm.monitor.common.SpeedMode.ECO   -> Triple(3200, accent.copy(alpha = 0.55f), 0.18f)
+        com.muratcangzm.monitor.common.SpeedMode.FAST  -> Triple(1200, Color(0xFF30E3A2).copy(alpha = 0.60f), 0.24f)
+        com.muratcangzm.monitor.common.SpeedMode.TURBO -> Triple(700, Color(0xFFFFA6E7).copy(alpha = 0.70f), 0.30f)
+    }
+
+    val inf = rememberInfiniteTransition(label = "ghost-border")
+    val phase by inf.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMs, easing = androidx.compose.animation.core.LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ghost-border-phase"
+    )
+
+    Surface(
+        shape = shape,
+        color = Color(0x22101826),
+        border = BorderStroke(1.dp, baseBorder),
+        modifier = modifier
+            .clip(shape)
+            .clickable { onClick() }
+            .drawBehind {
+                val stroke = 1.4.dp.toPx()
+                val inset = stroke / 2f
+
+                val left   = inset
+                val top    = inset
+                val right  = size.width - inset
+                val bottom = size.height - inset
+
+                val r = 10.dp.toPx().coerceAtMost(minOf((right - left) / 2f, (bottom - top) / 2f))
+
+                val LedgeTop    = (right - left) - 2f * r
+                val LedgeRight  = (bottom - top) - 2f * r
+                val LedgeBottom = LedgeTop
+                val LedgeLeft   = LedgeRight
+                val Lcorner     = (PI.toFloat() / 2f) * r
+                val P = LedgeTop + Lcorner +
+                        LedgeRight + Lcorner +
+                        LedgeBottom + Lcorner +
+                        LedgeLeft + Lcorner
+
+                val bandLen = (P * bandFraction).coerceAtLeast(12.dp.toPx())
+
+                fun drawPartial(a: Float, b: Float) {
+                    var start = a
+                    var end = b
+                    var cursor = 0f
+
+                    val tLen = LedgeTop
+                    if (end > cursor) {
+                        val s = maxOf(0f, start - cursor)
+                        val e = maxOf(0f, minOf(end - cursor, tLen))
+                        if (e > s) {
+                            val y = top
+                            val x1 = left + r + s
+                            val x2 = left + r + e
+                            drawLine(
+                                color = highlightColor,
+                                start = Offset(x1, y),
+                                end = Offset(x2, y),
+                                strokeWidth = stroke,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                            )
+                        }
+                    }
+                    cursor += tLen
+
+                    val trLen = Lcorner
+                    if (end > cursor) {
+                        val s = maxOf(0f, start - cursor)
+                        val e = maxOf(0f, minOf(end - cursor, trLen))
+                        if (e > s) {
+                            val rectLeft = right - 2f * r
+                            val rectTop  = top
+                            val startDeg = 270f + (s / trLen) * 90f
+                            val sweepDeg = (e - s) / trLen * 90f
+                            drawArc(
+                                color = highlightColor,
+                                startAngle = startDeg,
+                                sweepAngle = sweepDeg,
+                                useCenter = false,
+                                topLeft = Offset(rectLeft, rectTop),
+                                size = androidx.compose.ui.geometry.Size(2f * r, 2f * r),
+                                style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            )
+                        }
+                    }
+                    cursor += trLen
+
+                    val rLen = LedgeRight
+                    if (end > cursor) {
+                        val s = maxOf(0f, start - cursor)
+                        val e = maxOf(0f, minOf(end - cursor, rLen))
+                        if (e > s) {
+                            val x = right
+                            val y1 = top + r + s
+                            val y2 = top + r + e
+                            drawLine(
+                                color = highlightColor,
+                                start = Offset(x, y1),
+                                end = Offset(x, y2),
+                                strokeWidth = stroke,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                            )
+                        }
+                    }
+                    cursor += rLen
+
+                    val brLen = Lcorner
+                    if (end > cursor) {
+                        val s = maxOf(0f, start - cursor)
+                        val e = maxOf(0f, minOf(end - cursor, brLen))
+                        if (e > s) {
+                            val rectLeft = right - 2f * r
+                            val rectTop  = bottom - 2f * r
+                            val startDeg = 0f + (s / brLen) * 90f
+                            val sweepDeg = (e - s) / brLen * 90f
+                            drawArc(
+                                color = highlightColor,
+                                startAngle = startDeg,
+                                sweepAngle = sweepDeg,
+                                useCenter = false,
+                                topLeft = Offset(rectLeft, rectTop),
+                                size = androidx.compose.ui.geometry.Size(2f * r, 2f * r),
+                                style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            )
+                        }
+                    }
+                    cursor += brLen
+
+                    val bLen = LedgeBottom
+                    if (end > cursor) {
+                        val s = maxOf(0f, start - cursor)
+                        val e = maxOf(0f, minOf(end - cursor, bLen))
+                        if (e > s) {
+                            val y = bottom
+                            val x1 = right - r - s
+                            val x2 = right - r - e
+                            drawLine(
+                                color = highlightColor,
+                                start = Offset(x1, y),
+                                end = Offset(x2, y),
+                                strokeWidth = stroke,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                            )
+                        }
+                    }
+                    cursor += bLen
+
+                    val blLen = Lcorner
+                    if (end > cursor) {
+                        val s = maxOf(0f, start - cursor)
+                        val e = maxOf(0f, minOf(end - cursor, blLen))
+                        if (e > s) {
+                            val rectLeft = left
+                            val rectTop  = bottom - 2f * r
+                            val startDeg = 90f + (s / blLen) * 90f
+                            val sweepDeg = (e - s) / blLen * 90f
+                            drawArc(
+                                color = highlightColor,
+                                startAngle = startDeg,
+                                sweepAngle = sweepDeg,
+                                useCenter = false,
+                                topLeft = Offset(rectLeft, rectTop),
+                                size = androidx.compose.ui.geometry.Size(2f * r, 2f * r),
+                                style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            )
+                        }
+                    }
+                    cursor += blLen
+
+                    val lLen = LedgeLeft
+                    if (end > cursor) {
+                        val s = maxOf(0f, start - cursor)
+                        val e = maxOf(0f, minOf(end - cursor, lLen))
+                        if (e > s) {
+                            val x = left
+                            val y1 = bottom - r - s
+                            val y2 = bottom - r - e
+                            drawLine(
+                                color = highlightColor,
+                                start = Offset(x, y1),
+                                end = Offset(x, y2),
+                                strokeWidth = stroke,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                            )
+                        }
+                    }
+                    cursor += lLen
+
+                    val tlLen = Lcorner
+                    if (end > cursor) {
+                        val s = maxOf(0f, start - cursor)
+                        val e = maxOf(0f, minOf(end - cursor, tlLen))
+                        if (e > s) {
+                            val rectLeft = left
+                            val rectTop  = top
+                            val startDeg = 180f + (s / tlLen) * 90f
+                            val sweepDeg = (e - s) / tlLen * 90f
+                            drawArc(
+                                color = highlightColor,
+                                startAngle = startDeg,
+                                sweepAngle = sweepDeg,
+                                useCenter = false,
+                                topLeft = Offset(rectLeft, rectTop),
+                                size = androidx.compose.ui.geometry.Size(2f * r, 2f * r),
+                                style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            )
+                        }
+                    }
+                }
+
+                fun drawSegment(s0: Float, s1: Float) {
+                    if (s1 <= P) {
+                        drawPartial(s0, s1)
+                    } else {
+                        drawPartial(s0, P)
+                        drawPartial(0f, s1 - P)
+                    }
+                }
+
+                val startS = phase * P
+                val endS = startS + bandLen
+                drawSegment(startS, endS)
+            }
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+        ) {
+            if (icon != null) Text(icon, color = accent.copy(alpha = 0.9f))
+            Text(text, color = Color(0xFF9EB2C0))
+        }
+    }
+}
+
+@Composable
+private fun SpeedModePanel(
+    selected: com.muratcangzm.monitor.common.SpeedMode,
+    onSelect: (com.muratcangzm.monitor.common.SpeedMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val border = Brush.linearGradient(listOf(Color(0xFF1B2B45), Color(0xFF20304F), Color(0xFF1B2B45)))
+    Surface(
+        modifier = modifier,
+        color = Color(0x16101826),
+        tonalElevation = 2.dp,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, border)
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            GhostPill("Eco",   selected == com.muratcangzm.monitor.common.SpeedMode.ECO)   { onSelect(com.muratcangzm.monitor.common.SpeedMode.ECO) }
+            GhostPill("Fast",  selected == com.muratcangzm.monitor.common.SpeedMode.FAST)  { onSelect(com.muratcangzm.monitor.common.SpeedMode.FAST) }
+            GhostPill("Turbo", selected == com.muratcangzm.monitor.common.SpeedMode.TURBO) { onSelect(com.muratcangzm.monitor.common.SpeedMode.TURBO) }
+        }
+    }
+}
+
+@Composable
+private fun GhostPill(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val accent = Color(0xFF7BD7FF)
+    val shape = RoundedCornerShape(20.dp)
+    val alpha by animateFloatAsState(if (selected) 1f else 0.55f, tween(160), label = "pill-alpha")
+    Surface(
+        shape = shape,
+        color = Color(0x22101826),
+        border = BorderStroke(
+            1.dp,
+            Brush.linearGradient(
+                listOf(
+                    Color(0xFF233355).copy(alpha = 0.65f * alpha),
+                    accent.copy(alpha = 0.55f * alpha),
+                    Color(0xFF233355).copy(alpha = 0.65f * alpha)
+                )
+            )
+        ),
+        modifier = Modifier
+            .clip(shape)
+            .clickable { onClick() }
+    ) {
+        Text(
+            text = text,
+            color = if (selected) accent else Color(0xFF9EB2C0),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
     }
 }
 
@@ -412,7 +791,7 @@ private fun GlowingStatChip(label: String, value: String, accent: Color) {
     }
 }
 
-/* ---------- Ghostly Tech Filter Field (compact + unfocused daha belirgin) ---------- */
+/* ---------- Ghostly Tech Filter Field ---------- */
 
 @Composable
 private fun GhostFilterField(
@@ -420,7 +799,8 @@ private fun GhostFilterField(
     onValueChange: (String) -> Unit,
     label: String,
     modifier: Modifier = Modifier,
-    trailing: (@Composable () -> Unit)? = null
+    trailing: (@Composable () -> Unit)? = null,
+    leading: (@Composable () -> Unit)? = null
 ) {
     val accent = Color(0xFF7BD7FF)
     val shape = RoundedCornerShape(12.dp)
@@ -456,6 +836,7 @@ private fun GhostFilterField(
             singleLine = true,
             label = { GhostLabelAnimated(text = label) },
             trailingIcon = trailing,
+            leadingIcon = leading,
             interactionSource = interaction,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { /* flow */ }),
@@ -724,15 +1105,12 @@ private fun PacketList(
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
-
-    // 5) Empty state
     val isEmpty = adapterItems.isEmpty() && rawItems.isEmpty()
     if (isEmpty) {
         EmptyState(isRunning = isRunning)
         return
     }
 
-    // Sticky header için pinned son kayıtlar
     val pinnedLatest = remember(rawItems, pinnedUids) {
         val map = HashMap<Int, UiPacket>()
         for (it in rawItems) {
@@ -899,7 +1277,6 @@ private fun PacketRow(
                 Text(row.bytesLabel, color = Color(0xFF30E3A2), style = MaterialTheme.typography.bodyMedium)
             }
 
-            // 4) From/To uzun basınca kopyalama
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     "from  ${row.from}",
@@ -957,12 +1334,7 @@ private fun inferDirection(row: UiPacket): Direction? {
     }
 }
 
-@Composable
-private fun Mono(text: String) {
-    Text(text, color = Color(0xFFB8C8D8), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-}
-
-/* ----------------------------- SHARE JSON (FileProvider) ----------------------------- */
+/* ----------------------------- SHARE JSON ----------------------------- */
 
 private fun shareWindowJson(
     ctx: Context,
@@ -992,9 +1364,7 @@ private fun shareWindowJson(
         }
         ctx.startActivity(Intent.createChooser(send, "Share snapshot"))
     }.onFailure {
-        // 6) Hata -> Snackbar
         scope.launch { snackbarHost.showSnackbar("Sharing failed") }
-        // Fallback olarak text share deneyelim:
         runCatching {
             val fallback = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
@@ -1029,7 +1399,7 @@ private fun String.escapeJson(): String = buildString {
     for (c in this@escapeJson) {
         when (c) {
             '\\' -> append("\\\\")
-            '"' -> append("\\\"")
+            '"'  -> append("\\\"")
             '\n' -> append("\\n")
             '\r' -> append("\\r")
             '\t' -> append("\\t")
@@ -1038,15 +1408,10 @@ private fun String.escapeJson(): String = buildString {
     }
 }
 
-/* ----------------------------- /SHARE JSON ----------------------------- */
-
 private fun humanBytes(b: Long): String {
     val u = arrayOf("B", "KB", "MB", "GB", "TB")
-    var v = b.toDouble();
-    var i = 0
-    while (v >= 1024 && i < u.lastIndex) {
-        v /= 1024; i++
-    }
+    var v = b.toDouble(); var i = 0
+    while (v >= 1024 && i < u.lastIndex) { v /= 1024; i++ }
     return String.format(Locale.getDefault(), "%.1f %s", v, u[i])
 }
 
@@ -1061,9 +1426,7 @@ private fun rememberQuiescent(
     val quiet = remember { mutableStateOf(false) }
     LaunchedEffect(pps, kbs) {
         val nearZero = (abs(pps) < ppsThreshold && abs(kbs) < kbsThreshold)
-        if (!nearZero) {
-            quiet.value = false; return@LaunchedEffect
-        }
+        if (!nearZero) { quiet.value = false; return@LaunchedEffect }
         delay(holdMs)
         quiet.value = (abs(pps) < ppsThreshold && abs(kbs) < kbsThreshold)
     }
@@ -1077,11 +1440,108 @@ private fun rememberKeyboardVisible(): State<Boolean> {
     val density = LocalDensity.current
     val ime = WindowInsets.ime
     val visible = remember { mutableStateOf(false) }
-
     LaunchedEffect(ime, density) {
         snapshotFlow { ime.getBottom(density) > 0 }
             .distinctUntilChanged()
             .collect { isOpen -> visible.value = isOpen }
     }
     return visible
+}
+
+@Composable
+private fun GhostViewModeAnchor(
+    mode: ViewMode,
+    onChange: (ViewMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val shape = RoundedCornerShape(10.dp)
+    val accent = Color(0xFF7BD7FF)
+
+    Box(modifier) {
+        Surface(
+            shape = shape,
+            color = Color(0x22101826),
+            border = BorderStroke(
+                1.dp,
+                Brush.linearGradient(
+                    listOf(
+                        Color(0xFF233355).copy(alpha = 0.55f),
+                        accent.copy(alpha = 0.45f),
+                        Color(0xFF233355).copy(alpha = 0.55f)
+                    )
+                )
+            ),
+            modifier = Modifier
+                .clip(shape)
+                .clickable { expanded = !expanded }
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text("▦", color = accent.copy(alpha = 0.9f))
+                Text(if (mode == ViewMode.RAW) "Raw" else "Agg", color = Color(0xFF9EB2C0))
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            Surface(
+                color = Color(0xFF0F1726),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(
+                    1.dp,
+                    Brush.linearGradient(listOf(Color(0xFF1B2B45), Color(0xFF20304F), Color(0xFF1B2B45)))
+                )
+            ) {
+                Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp)) {
+                    Text("View mode", color = Color(0xFF9EB2C0), modifier = Modifier.padding(6.dp))
+                    GhostMenuRow(
+                        icon = "≋",
+                        title = "Raw",
+                        subtitle = "Show every packet",
+                        selected = mode == ViewMode.RAW
+                    ) { onChange(ViewMode.RAW); expanded = false }
+                    GhostMenuRow(
+                        icon = "⧉",
+                        title = "Aggregated",
+                        subtitle = "Group by app/host",
+                        selected = mode == ViewMode.AGGREGATED
+                    ) { onChange(ViewMode.AGGREGATED); expanded = false }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GhostMenuRow(
+    icon: String,
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val accent = Color(0xFF7BD7FF)
+    val textCol = if (selected) accent else Color(0xFFDBEAFE)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(icon, color = accent)
+        Column(Modifier.weight(1f)) {
+            Text(title, color = textCol)
+            Text(subtitle, color = Color(0xFF8EA0B5), style = MaterialTheme.typography.labelSmall)
+        }
+        if (selected) Text("✓", color = accent)
+    }
 }
