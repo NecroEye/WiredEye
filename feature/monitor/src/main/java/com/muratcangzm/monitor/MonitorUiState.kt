@@ -15,6 +15,7 @@ data class MonitorUiState(
     val pps: Double = 0.0,
     val throughputKbs: Double = 0.0,
     val pinnedUids: Set<Int> = emptySet(),
+    val anomalyKeys: Set<String> = emptySet(),
     val speedMode: SpeedMode = SpeedMode.ECO,
     val viewMode: ViewMode = ViewMode.RAW,
 )

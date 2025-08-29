@@ -32,6 +32,10 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 import kotlin.math.min
 
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+
 class MonitorViewModel(
     private val repo: PacketRepository,
     private val engine: PacketCaptureEngine,
@@ -56,6 +60,21 @@ class MonitorViewModel(
     private val labelCache = ConcurrentHashMap<Int, String?>()
     private val packageCache = ConcurrentHashMap<Int, String?>()
 
+    // Anomaly detection state
+    private data class RateEntry(var lastTs: Long, var ema: Double, var lastAlertTs: Long)
+    private val rateByHost = ConcurrentHashMap<String, RateEntry>()               // key: "uid|remoteHost"
+    private val seenHostKeys = ConcurrentHashMap<String, Long>()                  // key: "uid|remoteHost"
+
+    private val anomalyHighlights = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    private val _anomalyEvents = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val anomalyEvents: SharedFlow<String> = _anomalyEvents
+
+    // Tunables (lightweight, non-blocking)
+    private val RATE_THRESHOLD_BPS = 128 * 1024.0    // 128 KB/s
+    private val NEW_HOST_BYTES_MIN = 64 * 1024L      // 64 KB in a single packet
+    private val ALERT_DEBOUNCE_MS = 5_000L           // avoid spam per key
+    private val HIGHLIGHT_HOLD_MS = 1_600L           // row flash duration
+
     @OptIn(ExperimentalCoroutinesApi::class)
     private val windowStream: Flow<List<PacketMeta>> =
         windowMillis
@@ -69,6 +88,8 @@ class MonitorViewModel(
                 // Günlük yazımı (repo) UI/VM thread’i bloklamasın diye bırakıyoruz,
                 // repo implementasyonu zaten uygun dispatcher’ı kullanmalı.
                 repo.recordPacketMeta(meta)
+                detectByteSpike(meta)
+                detectNewHostSpike(meta)
                 totalAllTime.value = totalAllTime.value + meta.bytes
                 val key = appKey(meta)
                 if (key.isNotBlank() && !seenApps.value.contains(key)) {
@@ -197,6 +218,7 @@ class MonitorViewModel(
         baseUi
             .combine(speedMode) { st, sm -> st.copy(speedMode = sm) }
             .combine(viewMode) { st, vm -> st.copy(viewMode = vm) }
+            .combine(anomalyHighlights) { st, hi -> st.copy(anomalyKeys = hi) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorUiState())
 
     // -------------------------------------------------------------------------
@@ -334,6 +356,66 @@ class MonitorViewModel(
         val v = runCatching { resolver.packageFor(uid) }.getOrNull()
         if (v != null) packageCache.putIfAbsent(uid, v)
         return v
+    }
+
+    // -------------------- Anomaly detection helpers --------------------
+    private fun detectByteSpike(m: PacketMeta) {
+        val host = m.remoteAddress ?: return
+        if (host == "-" || m.bytes <= 0) return
+        val uidKey = m.uid ?: return
+        val key = "$uidKey|$host"
+        val now = m.timestamp
+        val entry = rateByHost.getOrPut(key) { RateEntry(lastTs = 0L, ema = 0.0, lastAlertTs = 0L) }
+        if (entry.lastTs > 0L) {
+            val dtMs = (now - entry.lastTs).coerceAtLeast(1L)
+            val instBps = m.bytes.toDouble() * 1000.0 / dtMs.toDouble()
+            val alpha = 0.85
+            entry.ema = entry.ema * alpha + instBps * (1.0 - alpha)
+            if (entry.ema > RATE_THRESHOLD_BPS && (now - entry.lastAlertTs) > ALERT_DEBOUNCE_MS) {
+                entry.lastAlertTs = now
+                val msg = "High throughput ${humanBytesPerSec(entry.ema)} to $host"
+                flagAnomaly(m, msg)
+            }
+        }
+        entry.lastTs = now
+    }
+
+    private fun detectNewHostSpike(m: PacketMeta) {
+        val host = m.remoteAddress ?: return
+        if (host == "-" || m.bytes < NEW_HOST_BYTES_MIN) return
+        val uidKey = m.uid ?: return
+        val key = "$uidKey|$host"
+        if (seenHostKeys.putIfAbsent(key, m.timestamp) == null) {
+            val msg = "New host spike: $host • ${humanBytes(m.bytes)}"
+            flagAnomaly(m, msg)
+        }
+    }
+
+    private fun flagAnomaly(m: PacketMeta, message: String) {
+        // Highlight corresponding UI row
+        val uiKey = uiKeyOf(m)
+        val cur = anomalyHighlights.value
+        if (!cur.contains(uiKey)) {
+            anomalyHighlights.value = cur + uiKey
+            viewModelScope.launch {
+                delay(HIGHLIGHT_HOLD_MS)
+                anomalyHighlights.value = anomalyHighlights.value - uiKey
+            }
+        }
+        _anomalyEvents.tryEmit(message)
+    }
+
+    private fun uiKeyOf(m: PacketMeta): String {
+        val uidStr = m.uid?.toString() ?: "?"
+        return "${m.timestamp}:${uidStr}:${m.bytes}:${m.localPort}:${m.remotePort}:${m.localAddress}:${m.remoteAddress}"
+    }
+
+    private fun humanBytesPerSec(bps: Double): String {
+        val units = arrayOf("B/s", "KB/s", "MB/s", "GB/s")
+        var v = bps
+        var i = 0
+        while (v >= 1024.0 && i < units.lastIndex) { v /= 1024.0; i++ }
+        return String.format(java.util.Locale.getDefault(), "%.1f %s", v, units[i])
     }
 
     private fun humanBytes(b: Long): String {

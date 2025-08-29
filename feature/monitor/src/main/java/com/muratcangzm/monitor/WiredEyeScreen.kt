@@ -87,6 +87,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -151,6 +153,10 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
     LaunchedEffect(state.isEngineRunning) { if (!state.isEngineRunning) isStopping = false }
+
+    LaunchedEffect(Unit) {
+        vm.anomalyEvents.collect { msg -> snackbarHost.showSnackbar(msg) }
+    }
 
     val accent = remember { Color(0xFF7BD7FF) }
     val bg = remember {
@@ -220,6 +226,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                                     }
                                 }
                             }
+
                             TopAction.Settling -> {
                                 CircularProgressIndicator(
                                     modifier = Modifier
@@ -228,6 +235,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                                     color = accent, strokeWidth = 2.dp
                                 )
                             }
+
                             TopAction.Idle -> {
                                 TextButton(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -267,6 +275,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                 FilterBar(
                     text = state.filterText,
                     minBytes = state.minBytes,
+                    totalBytes = state.totalBytes,
                     onText = { vm.onEvent(MonitorUiEvent.SetFilter(it)) },
                     onClear = { vm.onEvent(MonitorUiEvent.ClearFilter) },
                     onMinBytes = { vm.onEvent(MonitorUiEvent.SetMinBytes(it)) }
@@ -281,6 +290,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                     adapterItems = adapter.items,
                     rawItems = state.items,
                     pinnedUids = state.pinnedUids,
+                    highlightedKeys = state.anomalyKeys,
                     onPin = { uid ->
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         vm.onEvent(MonitorUiEvent.TogglePin(uid))
@@ -378,11 +388,15 @@ private fun TechStatsBar(
             item {
                 GhostTonalButton(
                     text = when (state.speedMode) {
-                        com.muratcangzm.monitor.common.SpeedMode.ECO   -> "Eco"
-                        com.muratcangzm.monitor.common.SpeedMode.FAST  -> "Fast"
+                        com.muratcangzm.monitor.common.SpeedMode.ECO -> "Eco"
+                        com.muratcangzm.monitor.common.SpeedMode.FAST -> "Fast"
                         com.muratcangzm.monitor.common.SpeedMode.TURBO -> "Turbo"
                     },
-                    icon = "⚡",
+                    icon = when (state.speedMode) {
+                        com.muratcangzm.monitor.common.SpeedMode.ECO -> "🌿"
+                        com.muratcangzm.monitor.common.SpeedMode.FAST -> "⚡"
+                        com.muratcangzm.monitor.common.SpeedMode.TURBO -> "🚀"
+                    },
                     active = speedExpanded,
                     mode = state.speedMode,
                     onClick = { speedExpanded = !speedExpanded }
@@ -399,7 +413,7 @@ private fun TechStatsBar(
         AnimatedVisibility(
             visible = speedExpanded,
             enter = fadeIn(tween(180)) + expandVertically(tween(220)),
-            exit  = fadeOut(tween(160)) + shrinkVertically(tween(200))
+            exit = fadeOut(tween(160)) + shrinkVertically(tween(200))
         ) {
             SpeedModePanel(
                 selected = state.speedMode,
@@ -442,9 +456,18 @@ private fun GhostTonalButton(
     )
 
     val (durationMs, highlightColor, bandFraction) = when (mode) {
-        com.muratcangzm.monitor.common.SpeedMode.ECO   -> Triple(3200, accent.copy(alpha = 0.55f), 0.18f)
-        com.muratcangzm.monitor.common.SpeedMode.FAST  -> Triple(1200, Color(0xFF30E3A2).copy(alpha = 0.60f), 0.24f)
-        com.muratcangzm.monitor.common.SpeedMode.TURBO -> Triple(700, Color(0xFFFFA6E7).copy(alpha = 0.70f), 0.30f)
+        com.muratcangzm.monitor.common.SpeedMode.ECO -> {
+            // 🌿 Plant green
+            Triple(3200, Color(0xFF30E3A2).copy(alpha = 0.65f), 0.18f)
+        }
+        com.muratcangzm.monitor.common.SpeedMode.FAST -> {
+            // ⚡ Amber/yellow
+            Triple(1200, Color(0xFFFFC107).copy(alpha = 0.70f), 0.24f)
+        }
+        com.muratcangzm.monitor.common.SpeedMode.TURBO -> {
+            // 🚀 Pink/Magenta
+            Triple(700, Color(0xFFFFA6E7).copy(alpha = 0.75f), 0.30f)
+        }
     }
 
     val inf = rememberInfiniteTransition(label = "ghost-border")
@@ -469,18 +492,18 @@ private fun GhostTonalButton(
                 val stroke = 1.4.dp.toPx()
                 val inset = stroke / 2f
 
-                val left   = inset
-                val top    = inset
-                val right  = size.width - inset
+                val left = inset
+                val top = inset
+                val right = size.width - inset
                 val bottom = size.height - inset
 
                 val r = 10.dp.toPx().coerceAtMost(minOf((right - left) / 2f, (bottom - top) / 2f))
 
-                val LedgeTop    = (right - left) - 2f * r
-                val LedgeRight  = (bottom - top) - 2f * r
+                val LedgeTop = (right - left) - 2f * r
+                val LedgeRight = (bottom - top) - 2f * r
                 val LedgeBottom = LedgeTop
-                val LedgeLeft   = LedgeRight
-                val Lcorner     = (PI.toFloat() / 2f) * r
+                val LedgeLeft = LedgeRight
+                val Lcorner = (PI.toFloat() / 2f) * r
                 val P = LedgeTop + Lcorner +
                         LedgeRight + Lcorner +
                         LedgeBottom + Lcorner +
@@ -518,7 +541,7 @@ private fun GhostTonalButton(
                         val e = maxOf(0f, minOf(end - cursor, trLen))
                         if (e > s) {
                             val rectLeft = right - 2f * r
-                            val rectTop  = top
+                            val rectTop = top
                             val startDeg = 270f + (s / trLen) * 90f
                             val sweepDeg = (e - s) / trLen * 90f
                             drawArc(
@@ -559,7 +582,7 @@ private fun GhostTonalButton(
                         val e = maxOf(0f, minOf(end - cursor, brLen))
                         if (e > s) {
                             val rectLeft = right - 2f * r
-                            val rectTop  = bottom - 2f * r
+                            val rectTop = bottom - 2f * r
                             val startDeg = 0f + (s / brLen) * 90f
                             val sweepDeg = (e - s) / brLen * 90f
                             drawArc(
@@ -600,7 +623,7 @@ private fun GhostTonalButton(
                         val e = maxOf(0f, minOf(end - cursor, blLen))
                         if (e > s) {
                             val rectLeft = left
-                            val rectTop  = bottom - 2f * r
+                            val rectTop = bottom - 2f * r
                             val startDeg = 90f + (s / blLen) * 90f
                             val sweepDeg = (e - s) / blLen * 90f
                             drawArc(
@@ -641,7 +664,7 @@ private fun GhostTonalButton(
                         val e = maxOf(0f, minOf(end - cursor, tlLen))
                         if (e > s) {
                             val rectLeft = left
-                            val rectTop  = top
+                            val rectTop = top
                             val startDeg = 180f + (s / tlLen) * 90f
                             val sweepDeg = (e - s) / tlLen * 90f
                             drawArc(
@@ -703,9 +726,9 @@ private fun SpeedModePanel(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            GhostPill("Eco",   selected == com.muratcangzm.monitor.common.SpeedMode.ECO)   { onSelect(com.muratcangzm.monitor.common.SpeedMode.ECO) }
-            GhostPill("Fast",  selected == com.muratcangzm.monitor.common.SpeedMode.FAST)  { onSelect(com.muratcangzm.monitor.common.SpeedMode.FAST) }
-            GhostPill("Turbo", selected == com.muratcangzm.monitor.common.SpeedMode.TURBO) { onSelect(com.muratcangzm.monitor.common.SpeedMode.TURBO) }
+            GhostPill("🌿 Eco", selected == com.muratcangzm.monitor.common.SpeedMode.ECO) { onSelect(com.muratcangzm.monitor.common.SpeedMode.ECO) }
+            GhostPill("⚡ Fast", selected == com.muratcangzm.monitor.common.SpeedMode.FAST) { onSelect(com.muratcangzm.monitor.common.SpeedMode.FAST) }
+            GhostPill("🚀 Turbo", selected == com.muratcangzm.monitor.common.SpeedMode.TURBO) { onSelect(com.muratcangzm.monitor.common.SpeedMode.TURBO) }
         }
     }
 }
@@ -1056,6 +1079,7 @@ private fun rememberUiPacketAdapter(): UiPacketAdapter = remember { UiPacketAdap
 private fun FilterBar(
     text: String,
     minBytes: Long,
+    totalBytes: Long,
     onText: (String) -> Unit,
     onClear: () -> Unit,
     onMinBytes: (Long) -> Unit
@@ -1081,14 +1105,25 @@ private fun FilterBar(
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Min bytes:", color = Color(0xFF9EB2C0), modifier = Modifier.padding(end = 8.dp))
+
+            // Slider should use Total as max; when total is 0, keep value steady (disable interaction)
+            val maxForSlider = totalBytes.coerceAtLeast(0L)
+            val clampedValue = minBytes.coerceIn(0L, maxForSlider)
+
             Slider(
-                value = minBytes.coerceAtLeast(0).coerceAtMost(1024L * 1024L).toFloat(),
-                onValueChange = { onMinBytes(it.toLong()) },
-                valueRange = 0f..(1024f * 1024f),
+                value = clampedValue.toFloat(),
+                onValueChange = { v ->
+                    if (totalBytes > 0L) {
+                        onMinBytes(v.toLong())
+                    }
+                },
+                valueRange = 0f..(if (totalBytes > 0L) maxForSlider.toFloat() else 0f),
+                enabled = totalBytes > 0L,
                 modifier = Modifier.weight(1f)
             )
+
             Spacer(Modifier.width(8.dp))
-            Text(humanBytes(minBytes), color = Color(0xFF7BD7FF))
+            Text(humanBytes(clampedValue), color = Color(0xFF7BD7FF))
         }
     }
 }
@@ -1099,6 +1134,7 @@ private fun PacketList(
     adapterItems: List<UiPacketItem>,
     rawItems: List<UiPacket>,
     pinnedUids: Set<Int>,
+    highlightedKeys: Set<String>,
     onPin: (Int) -> Unit,
     onShareWindowJson: () -> Unit,
     onCopied: (String) -> Unit,
@@ -1164,6 +1200,7 @@ private fun PacketList(
         items(items = adapterItems, key = { it.id }) { item ->
             PacketRow(
                 row = item.model,
+                highlighted = highlightedKeys.contains(item.model.key),
                 onPin = onPin,
                 onShareWindowJson = onShareWindowJson,
                 onCopied = onCopied,
@@ -1228,6 +1265,7 @@ private fun PinnedRowCompact(
 @Composable
 private fun PacketRow(
     row: UiPacket,
+    highlighted: Boolean,
     onPin: (Int) -> Unit,
     onShareWindowJson: () -> Unit,
     onCopied: (String) -> Unit,
@@ -1241,12 +1279,30 @@ private fun PacketRow(
     val clipboard = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
 
+    val flash by animateFloatAsState(
+        targetValue = if (highlighted) 1f else 0f,
+        animationSpec = tween(350, easing = FastOutSlowInEasing),
+        label = "anomaly-flash"
+    )
+
     Surface(
         color = Color(0xFF0F1726),
         shape = RoundedCornerShape(16.dp),
         tonalElevation = 2.dp,
         border = BorderStroke(1.dp, border),
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            .drawWithContent {
+                drawContent()
+                if (flash > 0f) {
+                    val stroke = 2.dp.toPx()
+                    drawRoundRect(
+                        color = Color(0xFF30E3A2).copy(alpha = 0.55f * flash),
+                        cornerRadius = CornerRadius(16.dp.toPx(), 16.dp.toPx()),
+                        style = Stroke(width = stroke)
+                    )
+                }
+            }
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -1399,7 +1455,7 @@ private fun String.escapeJson(): String = buildString {
     for (c in this@escapeJson) {
         when (c) {
             '\\' -> append("\\\\")
-            '"'  -> append("\\\"")
+            '"' -> append("\\\"")
             '\n' -> append("\\n")
             '\r' -> append("\\r")
             '\t' -> append("\\t")
@@ -1410,8 +1466,11 @@ private fun String.escapeJson(): String = buildString {
 
 private fun humanBytes(b: Long): String {
     val u = arrayOf("B", "KB", "MB", "GB", "TB")
-    var v = b.toDouble(); var i = 0
-    while (v >= 1024 && i < u.lastIndex) { v /= 1024; i++ }
+    var v = b.toDouble();
+    var i = 0
+    while (v >= 1024 && i < u.lastIndex) {
+        v /= 1024; i++
+    }
     return String.format(Locale.getDefault(), "%.1f %s", v, u[i])
 }
 
@@ -1426,7 +1485,9 @@ private fun rememberQuiescent(
     val quiet = remember { mutableStateOf(false) }
     LaunchedEffect(pps, kbs) {
         val nearZero = (abs(pps) < ppsThreshold && abs(kbs) < kbsThreshold)
-        if (!nearZero) { quiet.value = false; return@LaunchedEffect }
+        if (!nearZero) {
+            quiet.value = false; return@LaunchedEffect
+        }
         delay(holdMs)
         quiet.value = (abs(pps) < ppsThreshold && abs(kbs) < kbsThreshold)
     }
