@@ -14,7 +14,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.buffer
@@ -32,10 +35,6 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 import kotlin.math.min
 
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
-
 class MonitorViewModel(
     private val repo: PacketRepository,
     private val engine: PacketCaptureEngine,
@@ -45,48 +44,37 @@ class MonitorViewModel(
     private val filterText = kotlinx.coroutines.flow.MutableStateFlow("")
     private val minBytes = kotlinx.coroutines.flow.MutableStateFlow(0L)
     private val windowMillis = kotlinx.coroutines.flow.MutableStateFlow(10_000L)
-
+    private val clearAfter = kotlinx.coroutines.flow.MutableStateFlow(0L)
     private val speedMode = kotlinx.coroutines.flow.MutableStateFlow(SpeedMode.FAST)
     private val viewMode = kotlinx.coroutines.flow.MutableStateFlow(ViewMode.RAW)
-
     private val engineState: StateFlow<EngineState> = engine.state
     private val totalAllTime = kotlinx.coroutines.flow.MutableStateFlow(0L)
     private val seenApps = kotlinx.coroutines.flow.MutableStateFlow(emptySet<String>())
-
     private val pinnedUids = kotlinx.coroutines.flow.MutableStateFlow<Set<Int>>(emptySet())
     private val mutedUids = kotlinx.coroutines.flow.MutableStateFlow<Set<Int>>(emptySet())
-
-    // Resolver caches
     private val labelCache = ConcurrentHashMap<Int, String?>()
     private val packageCache = ConcurrentHashMap<Int, String?>()
-
-    // Anomaly detection state
     private data class RateEntry(var lastTs: Long, var ema: Double, var lastAlertTs: Long)
-    private val rateByHost = ConcurrentHashMap<String, RateEntry>()               // key: "uid|remoteHost"
-    private val seenHostKeys = ConcurrentHashMap<String, Long>()                  // key: "uid|remoteHost"
-
+    private val rateByHost = ConcurrentHashMap<String, RateEntry>()
+    private val seenHostKeys = ConcurrentHashMap<String, Long>()
     private val anomalyHighlights = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
     private val _anomalyEvents = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val anomalyEvents: SharedFlow<String> = _anomalyEvents
-
-    // Tunables (lightweight, non-blocking)
-    private val RATE_THRESHOLD_BPS = 128 * 1024.0    // 128 KB/s
-    private val NEW_HOST_BYTES_MIN = 64 * 1024L      // 64 KB in a single packet
-    private val ALERT_DEBOUNCE_MS = 5_000L           // avoid spam per key
-    private val HIGHLIGHT_HOLD_MS = 1_600L           // row flash duration
+    private val RATE_THRESHOLD_BPS = 128 * 1024.0
+    private val NEW_HOST_BYTES_MIN = 64 * 1024L
+    private val ALERT_DEBOUNCE_MS = 5_000L
+    private val HIGHLIGHT_HOLD_MS = 1_600L
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val windowStream: Flow<List<PacketMeta>> =
         windowMillis
             .flatMapLatest { repo.liveWindow(it) }
-            .buffer(Channel.BUFFERED)  // üretim tüketimi aşarsa kuyrukla
-            .conflate()                // aradaki frame’leri birleştir, jank azalt
+            .buffer(Channel.BUFFERED)
+            .conflate()
 
     init {
         viewModelScope.launch {
             engine.events.collect { meta ->
-                // Günlük yazımı (repo) UI/VM thread’i bloklamasın diye bırakıyoruz,
-                // repo implementasyonu zaten uygun dispatcher’ı kullanmalı.
                 repo.recordPacketMeta(meta)
                 detectByteSpike(meta)
                 detectNewHostSpike(meta)
@@ -99,12 +87,12 @@ class MonitorViewModel(
         }
     }
 
-    /** UI filtre kontrolleri – filter string için tokenize edilmiş terms da içerir. */
     private data class Controls(
         val win: Long,
         val filter: String,
         val minB: Long,
-        val terms: List<String>
+        val terms: List<String>,
+        val clearAfter: Long
     )
 
     private fun tokenize(q: String): List<String> =
@@ -113,13 +101,16 @@ class MonitorViewModel(
             .mapNotNull { t -> val s = t.trim(); if (s.isNotEmpty()) s else null }
 
     private val controls: StateFlow<Controls> =
-        combine(windowMillis, filterText, minBytes) { win, filter, minB ->
-            Controls(win = win, filter = filter, minB = minB, terms = tokenize(filter))
+        combine(windowMillis, filterText, minBytes, clearAfter) { win, filter, minB, clearTs ->
+            Controls(win = win, filter = filter, minB = minB, terms = tokenize(filter), clearAfter = clearTs)
         }
             .distinctUntilChanged()
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Controls(10_000L, "", 0L, emptyList()))
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                Controls(10_000L, "", 0L, emptyList(), 0L)
+            )
 
-    /** Hız moduna göre UI örnekleme periyodu (ms). */
     private val cadenceFlow: StateFlow<Long> =
         speedMode.map { mode ->
             when (mode) {
@@ -129,9 +120,6 @@ class MonitorViewModel(
             }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, 220L)
 
-    // -------------------------------------------------------------------------
-    // Liste üretimi (Raw / Aggregated)
-    // -------------------------------------------------------------------------
     private data class Inputs(
         val list: List<PacketMeta>,
         val c: Controls,
@@ -148,12 +136,10 @@ class MonitorViewModel(
     private val itemsFlow: StateFlow<List<UiPacket>> =
         cadenceFlow.flatMapLatest { cadence ->
             inputsFlow.combine(viewMode) { inp, mode ->
-                // Ağır iş: filtre/aggregate/sort -> Default havuza
                 withContext(Dispatchers.Default) {
-                    // Tek geçiş – sequence ile GC/alloc azalt
                     val filtered = inp.list
                         .asSequence()
-                        .filter { it.bytes >= inp.c.minB && matchesFilter(it, inp.c.terms) }
+                        .filter { it.bytes >= inp.c.minB && it.timestamp >= inp.c.clearAfter && matchesFilter(it, inp.c.terms) }
                         .filter { it.uid == null || !inp.mutes.contains(it.uid!!) }
                         .toList()
 
@@ -174,7 +160,6 @@ class MonitorViewModel(
                 .sample(cadence)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    // ---- İstatistikler (ham pencereden hesaplanır; görünümden bağımsız)
     private data class Stats(val total: Long, val uniqueApps: Int, val pps: Double, val kbs: Double)
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -183,7 +168,7 @@ class MonitorViewModel(
             combine(windowStream, controls) { list, c ->
                 withContext(Dispatchers.Default) {
                     val f = list.asSequence()
-                        .filter { it.bytes >= c.minB && matchesFilter(it, c.terms) }
+                        .filter { it.bytes >= c.minB && it.timestamp >= c.clearAfter && matchesFilter(it, c.terms) }
                         .toList()
                     val pps = if (c.win > 0) f.size / (c.win / 1000.0) else 0.0
                     val windowTotalBytes = f.sumOf { it.bytes }
@@ -197,7 +182,6 @@ class MonitorViewModel(
         engineState.map { it is EngineState.Running }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    // UI state combine – katmanlı combine ile tür karmaşasını önlüyoruz
     private val baseUi: Flow<MonitorUiState> =
         combine(itemsFlow, controls, isRunningFlow, statsFlow, pinnedUids) { items, c, running, s, pins ->
             MonitorUiState(
@@ -221,9 +205,6 @@ class MonitorViewModel(
             .combine(anomalyHighlights) { st, hi -> st.copy(anomalyKeys = hi) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorUiState())
 
-    // -------------------------------------------------------------------------
-    // Events
-    // -------------------------------------------------------------------------
     fun onEvent(ev: MonitorUiEvent) {
         when (ev) {
             is MonitorUiEvent.SetFilter   -> filterText.value = ev.text
@@ -236,6 +217,15 @@ class MonitorViewModel(
             MonitorUiEvent.ClearFilter    -> filterText.value = ""
             MonitorUiEvent.StartEngine    -> viewModelScope.launch { engine.start() }
             MonitorUiEvent.StopEngine     -> viewModelScope.launch { engine.stop() }
+            MonitorUiEvent.ClearNow -> {
+                val now = System.currentTimeMillis()
+                clearAfter.value = now
+                totalAllTime.value = 0L
+                seenApps.value = emptySet()
+                anomalyHighlights.value = emptySet()
+                rateByHost.clear()
+                seenHostKeys.clear()
+            }
         }
     }
 
@@ -249,9 +239,6 @@ class MonitorViewModel(
         mutedUids.value = if (cur.contains(uid)) cur - uid else cur + uid
     }
 
-    // -------------------------------------------------------------------------
-    // Mapping / Aggregation helpers
-    // -------------------------------------------------------------------------
     private fun PacketMeta.toUiPacket(): UiPacket {
         val uidStr = uid?.toString() ?: "?"
         val pkg = packageName ?: uid?.let { safePackage(it) } ?: ""
@@ -284,12 +271,10 @@ class MonitorViewModel(
         )
     }
 
-    /** Tek geçişte, düşük GC’li aggregate. */
     private fun aggregateToUi(list: List<PacketMeta>): List<UiPacket> {
         data class Agg(var total: Long, var last: PacketMeta)
-        val est = min( max(16, list.size / 4), 1_000_000 )
+        val est = min(max(16, list.size / 4), 1_000_000)
         val map = HashMap<String, Agg>(est)
-
         for (m in list) {
             val key = aggKey(m)
             val a = map[key]
@@ -300,24 +285,16 @@ class MonitorViewModel(
                 if (m.timestamp > a.last.timestamp) a.last = m
             }
         }
-
         val out = ArrayList<UiPacket>(map.size)
         for ((k, a) in map) {
             val last = a.last
             val synthetic = last.copy(bytes = a.total, protocol = "AGG")
             val ui = synthetic.toUiPacket()
-            out.add(
-                ui.copy(
-                    key = "agg:$k",
-                    proto = "AGG",
-                    bytesLabel = humanBytes(a.total)
-                )
-            )
+            out.add(ui.copy(key = "agg:$k", proto = "AGG", bytesLabel = humanBytes(a.total)))
         }
         return out
     }
 
-    // kullanıcı istedi: grouping key
     private fun aggKey(m: PacketMeta) =
         "${m.uid ?: -1}|${m.packageName ?: ""}|${m.protocol.uppercase()}|${m.remoteAddress}:${m.remotePort}"
 
@@ -358,7 +335,6 @@ class MonitorViewModel(
         return v
     }
 
-    // -------------------- Anomaly detection helpers --------------------
     private fun detectByteSpike(m: PacketMeta) {
         val host = m.remoteAddress ?: return
         if (host == "-" || m.bytes <= 0) return
@@ -392,7 +368,6 @@ class MonitorViewModel(
     }
 
     private fun flagAnomaly(m: PacketMeta, message: String) {
-        // Highlight corresponding UI row
         val uiKey = uiKeyOf(m)
         val cur = anomalyHighlights.value
         if (!cur.contains(uiKey)) {

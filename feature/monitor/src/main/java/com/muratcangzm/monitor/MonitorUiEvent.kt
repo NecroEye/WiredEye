@@ -14,4 +14,5 @@ sealed interface MonitorUiEvent {
     data class ToggleMute(val uid: Int) : MonitorUiEvent
     data class SetSpeed(val mode: SpeedMode) : MonitorUiEvent
     data class SetViewMode(val mode: ViewMode) : MonitorUiEvent
+    data object ClearNow : MonitorUiEvent
 }
