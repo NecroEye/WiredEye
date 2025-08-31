@@ -1,3 +1,4 @@
+// MonitorViewModel.kt
 package com.muratcangzm.monitor
 
 import androidx.lifecycle.ViewModel
@@ -52,19 +53,27 @@ class MonitorViewModel(
     private val seenApps = kotlinx.coroutines.flow.MutableStateFlow(emptySet<String>())
     private val pinnedUids = kotlinx.coroutines.flow.MutableStateFlow<Set<Int>>(emptySet())
     private val mutedUids = kotlinx.coroutines.flow.MutableStateFlow<Set<Int>>(emptySet())
+
+    // Resolver caches
     private val labelCache = ConcurrentHashMap<Int, String?>()
     private val packageCache = ConcurrentHashMap<Int, String?>()
+
+    // Spike detection
     private data class RateEntry(var lastTs: Long, var ema: Double, var lastAlertTs: Long)
+
     private val rateByHost = ConcurrentHashMap<String, RateEntry>()
     private val seenHostKeys = ConcurrentHashMap<String, Long>()
+
     private val anomalyHighlights = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
     private val _anomalyEvents = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val anomalyEvents: SharedFlow<String> = _anomalyEvents
+
     private val RATE_THRESHOLD_BPS = 128 * 1024.0
     private val NEW_HOST_BYTES_MIN = 64 * 1024L
     private val ALERT_DEBOUNCE_MS = 5_000L
     private val HIGHLIGHT_HOLD_MS = 1_600L
 
+    // ---- Window stream ----
     @OptIn(ExperimentalCoroutinesApi::class)
     private val windowStream: Flow<List<PacketMeta>> =
         windowMillis
@@ -111,11 +120,12 @@ class MonitorViewModel(
                 Controls(10_000L, "", 0L, emptyList(), 0L)
             )
 
+    /** Hız moduna göre UI örnekleme periyodu (ms). */
     private val cadenceFlow: StateFlow<Long> =
         speedMode.map { mode ->
             when (mode) {
-                SpeedMode.ECO   -> 500L
-                SpeedMode.FAST  -> 220L
+                SpeedMode.ECO -> 500L
+                SpeedMode.FAST -> 220L
                 SpeedMode.TURBO -> 100L
             }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, 220L)
@@ -144,7 +154,7 @@ class MonitorViewModel(
                         .toList()
 
                     val ui: List<UiPacket> = when (mode) {
-                        ViewMode.RAW        -> filtered.asReversed().map { it.toUiPacket() }
+                        ViewMode.RAW -> filtered.asReversed().map { it.toUiPacket() }
                         ViewMode.AGGREGATED -> aggregateToUi(filtered)
                     }
 
@@ -205,18 +215,21 @@ class MonitorViewModel(
             .combine(anomalyHighlights) { st, hi -> st.copy(anomalyKeys = hi) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorUiState())
 
+    // -------------------------------------------------------------------------
+    // Events
+    // -------------------------------------------------------------------------
     fun onEvent(ev: MonitorUiEvent) {
         when (ev) {
-            is MonitorUiEvent.SetFilter   -> filterText.value = ev.text
+            is MonitorUiEvent.SetFilter -> filterText.value = ev.text
             is MonitorUiEvent.SetMinBytes -> minBytes.value = ev.value
-            is MonitorUiEvent.SetWindow   -> windowMillis.value = ev.millis
-            is MonitorUiEvent.TogglePin   -> togglePin(ev.uid)
-            is MonitorUiEvent.ToggleMute  -> toggleMute(ev.uid)
-            is MonitorUiEvent.SetSpeed    -> speedMode.value = ev.mode
+            is MonitorUiEvent.SetWindow -> windowMillis.value = ev.millis
+            is MonitorUiEvent.TogglePin -> togglePin(ev.uid)
+            is MonitorUiEvent.ToggleMute -> toggleMute(ev.uid)
+            is MonitorUiEvent.SetSpeed -> speedMode.value = ev.mode
             is MonitorUiEvent.SetViewMode -> viewMode.value = ev.mode
-            MonitorUiEvent.ClearFilter    -> filterText.value = ""
-            MonitorUiEvent.StartEngine    -> viewModelScope.launch { engine.start() }
-            MonitorUiEvent.StopEngine     -> viewModelScope.launch { engine.stop() }
+            MonitorUiEvent.ClearFilter -> filterText.value = ""
+            MonitorUiEvent.StartEngine -> viewModelScope.launch { engine.start() }
+            MonitorUiEvent.StopEngine -> viewModelScope.launch { engine.stop() }
             MonitorUiEvent.ClearNow -> {
                 val now = System.currentTimeMillis()
                 clearAfter.value = now
@@ -239,6 +252,9 @@ class MonitorViewModel(
         mutedUids.value = if (cur.contains(uid)) cur - uid else cur + uid
     }
 
+    // -------------------------------------------------------------------------
+    // Mapping / Aggregation helpers
+    // -------------------------------------------------------------------------
     private fun PacketMeta.toUiPacket(): UiPacket {
         val uidStr = uid?.toString() ?: "?"
         val pkg = packageName ?: uid?.let { safePackage(it) } ?: ""
@@ -271,8 +287,10 @@ class MonitorViewModel(
         )
     }
 
+    /** Tek geçişte aggregate. */
     private fun aggregateToUi(list: List<PacketMeta>): List<UiPacket> {
         data class Agg(var total: Long, var last: PacketMeta)
+
         val est = min(max(16, list.size / 4), 1_000_000)
         val map = HashMap<String, Agg>(est)
         for (m in list) {
@@ -335,6 +353,58 @@ class MonitorViewModel(
         return v
     }
 
+    // -------------------- Reverse DNS + ASN helpers --------------------
+    // LRU cache (ip -> hostname)
+    private val dnsLock = Any()
+    private val dnsCache = object : java.util.LinkedHashMap<String, String>(256, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 512
+    }
+
+    data class AsnInfo(val asn: Int, val cc: String, val org: String)
+    private data class Cidr(val base: String, val prefix: Int, val info: AsnInfo)
+
+    private val asnTable: List<Cidr> = listOf(
+        Cidr("8.8.8.0", 24, AsnInfo(15169, "US", "Google")),
+        Cidr("1.1.1.0", 24, AsnInfo(13335, "US", "Cloudflare")),
+        Cidr("52.0.0.0", 8, AsnInfo(16509, "US", "AWS")),
+        Cidr("151.101.0.0", 16, AsnInfo(54113, "US", "Fastly")),
+        Cidr("23.246.0.0", 16, AsnInfo(15133, "US", "Akamai"))
+    )
+
+    suspend fun resolveHost(ip: String): String? = withContext(Dispatchers.IO) {
+        synchronized(dnsLock) { dnsCache[ip] }?.let { return@withContext it }
+        if (!IP_REGEX.matches(ip)) return@withContext null
+        val host = runCatching {
+            val addr = java.net.InetAddress.getByName(ip)
+            val name = addr.canonicalHostName ?: addr.hostName
+            if (name != ip) name else null
+        }.getOrNull()
+        if (host != null) synchronized(dnsLock) { dnsCache[ip] = host }
+        host
+    }
+
+    fun asnCountry(ip: String): AsnInfo? {
+        if (!IPV4_REGEX.matches(ip)) return null
+        val x = ipv4ToInt(ip)
+        return asnTable.firstOrNull { ipv4InCidr(x, it) }?.info
+    }
+
+    private fun ipv4ToInt(ip: String): Int {
+        val p = ip.split('.').map { it.toInt() }
+        return (p[0] shl 24) or (p[1] shl 16) or (p[2] shl 8) or p[3]
+    }
+
+    private fun ipv4InCidr(addr: Int, c: Cidr): Boolean {
+        val base = ipv4ToInt(c.base)
+        val mask = if (c.prefix == 0) 0 else -1 shl (32 - c.prefix)
+        return (addr and mask) == (base and mask)
+    }
+
+    // Regex'ler (IP)
+    private val IP_REGEX = Regex("""^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+$""")
+    private val IPV4_REGEX = Regex("""^(\d{1,3}\.){3}\d{1,3}$""")
+
+    // -------------------- Anomaly detection helpers --------------------
     private fun detectByteSpike(m: PacketMeta) {
         val host = m.remoteAddress ?: return
         if (host == "-" || m.bytes <= 0) return
@@ -389,14 +459,19 @@ class MonitorViewModel(
         val units = arrayOf("B/s", "KB/s", "MB/s", "GB/s")
         var v = bps
         var i = 0
-        while (v >= 1024.0 && i < units.lastIndex) { v /= 1024.0; i++ }
+        while (v >= 1024.0 && i < units.lastIndex) {
+            v /= 1024.0; i++
+        }
         return String.format(java.util.Locale.getDefault(), "%.1f %s", v, units[i])
     }
 
     private fun humanBytes(b: Long): String {
-        val u = arrayOf("B","KB","MB","GB","TB")
-        var v = b.toDouble(); var i = 0
-        while (v >= 1024 && i < u.lastIndex) { v /= 1024; i++ }
+        val u = arrayOf("B", "KB", "MB", "GB", "TB")
+        var v = b.toDouble();
+        var i = 0
+        while (v >= 1024 && i < u.lastIndex) {
+            v /= 1024; i++
+        }
         return String.format(Locale.getDefault(), "%.1f %s", v, u[i])
     }
 
@@ -407,7 +482,7 @@ class MonitorViewModel(
             .toString()
 
     companion object {
-        private val SERVICE_NAMES = mapOf(
+        val SERVICE_NAMES = mapOf(
             21 to "FTP", 22 to "SSH", 25 to "SMTP", 53 to "DNS",
             80 to "HTTP", 123 to "NTP", 143 to "IMAP",
             443 to "HTTPS", 465 to "SMTPS", 587 to "SMTP",

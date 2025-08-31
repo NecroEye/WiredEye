@@ -1,3 +1,4 @@
+// WiredEyeScreen.kt
 package com.muratcangzm.monitor
 
 import android.Manifest
@@ -143,11 +144,21 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.max
 
+// Connectivity
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import androidx.compose.foundation.layout.fillMaxHeight
+
 private const val NOTI_CHANNEL_ID = "wired_eye_capture"
 private const val NOTI_ID = 42
 private const val ACTION_STOP_ENGINE = "com.muratcangzm.monitor.ACTION_STOP_ENGINE"
 
+private enum class Direction { TX, RX, MIX }
+private enum class TopAction { Running, Settling, Idle }
+
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@SuppressLint("MissingPermission")
 @Composable
 fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewModel()) {
     val state by vm.uiState.collectAsStateWithLifecycle()
@@ -159,6 +170,31 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
     var startRequested by rememberSaveable { mutableStateOf(false) }
     var isStopping by rememberSaveable { mutableStateOf(false) }
 
+    // ---- Ağ farkındalığı: Wi-Fi/Cellular değişiminde snackbar + ClearNow ----
+    // Manifest: android.permission.ACCESS_NETWORK_STATE
+    @SuppressLint("MissingPermission")
+    DisposableEffect(Unit) {
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        var lastType: String? = null
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                val t = when {
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Cellular"
+                    else -> "Other"
+                }
+                if (t != lastType) {
+                    lastType = t
+                    scope.launch { snackbarHost.showSnackbar("Network: $t — metrics reset") }
+                    vm.onEvent(MonitorUiEvent.ClearNow)
+                }
+            }
+        }
+        runCatching { cm.registerDefaultNetworkCallback(cb) }
+        onDispose { runCatching { cm.unregisterNetworkCallback(cb) } }
+    }
+
+    // Settings dönüşünde motor başlatma
     DisposableEffect(lifecycleOwner, startRequested) {
         val obs = LifecycleEventObserver { _, e ->
             if (e == Lifecycle.Event.ON_RESUME && startRequested) {
@@ -171,10 +207,12 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
     }
     LaunchedEffect(state.isEngineRunning) { if (!state.isEngineRunning) isStopping = false }
 
+    // Anomali snackbar’ları
     LaunchedEffect(Unit) {
         vm.anomalyEvents.collect { msg -> snackbarHost.showSnackbar(msg) }
     }
 
+    // Bildirim “Stop” action listener
     DisposableEffect(Unit) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
@@ -194,6 +232,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
         onDispose { runCatching { ctx.unregisterReceiver(receiver) } }
     }
 
+    // Sürekli güncellenen bildirim
     LaunchedEffect(state.isEngineRunning, state.throughputKbs, state.pps, state.speedMode, state.totalBytes) {
         updateRunningNotification(ctx, state.isEngineRunning, state.throughputKbs, state.pps, state.speedMode, state.totalBytes)
     }
@@ -258,12 +297,16 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                                     }
                                 }
                             }
+
                             TopAction.Settling -> {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp).padding(end = 10.dp),
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .padding(end = 10.dp),
                                     color = accent, strokeWidth = 2.dp
                                 )
                             }
+
                             TopAction.Idle -> {
                                 TextButton(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -308,8 +351,10 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                     onMinBytes = { vm.onEvent(MonitorUiEvent.SetMinBytes(it)) }
                 )
                 Spacer(Modifier.height(8.dp))
+
                 val adapter = rememberUiPacketAdapter()
                 LaunchedEffect(state.items) { adapter.submit(state.items) }
+
                 PacketList(
                     isRunning = state.isEngineRunning,
                     adapterItems = adapter.items,
@@ -325,6 +370,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
                         scope.launch { snackbarHost.showSnackbar("$what copied") }
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     },
+                    vm = vm, // <-- zengin satır için gerekli
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -332,6 +378,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = org.koin.androidx.compose.koinViewMode
     }
 }
 
+/* ---------- live dot ---------- */
 @Composable
 fun LiveDotGhost(
     running: Boolean,
@@ -583,7 +630,15 @@ private fun GhostTonalButton(
                             val rectTop = top
                             val startDeg = 270f + (s / trLen) * 90f
                             val sweepDeg = (e - s) / trLen * 90f
-                            drawArc(color = highlightColor, startAngle = startDeg, sweepAngle = sweepDeg, useCenter = false, topLeft = Offset(rectLeft, rectTop), size = androidx.compose.ui.geometry.Size(2f * r, 2f * r), style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                            drawArc(
+                                color = highlightColor,
+                                startAngle = startDeg,
+                                sweepAngle = sweepDeg,
+                                useCenter = false,
+                                topLeft = Offset(rectLeft, rectTop),
+                                size = androidx.compose.ui.geometry.Size(2f * r, 2f * r),
+                                style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            )
                         }
                     }
                     cursor += trLen
@@ -608,7 +663,15 @@ private fun GhostTonalButton(
                             val rectTop = bottom - 2f * r
                             val startDeg = 0f + (s / brLen) * 90f
                             val sweepDeg = (e - s) / brLen * 90f
-                            drawArc(color = highlightColor, startAngle = startDeg, sweepAngle = sweepDeg, useCenter = false, topLeft = Offset(rectLeft, rectTop), size = androidx.compose.ui.geometry.Size(2f * r, 2f * r), style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                            drawArc(
+                                color = highlightColor,
+                                startAngle = startDeg,
+                                sweepAngle = sweepDeg,
+                                useCenter = false,
+                                topLeft = Offset(rectLeft, rectTop),
+                                size = androidx.compose.ui.geometry.Size(2f * r, 2f * r),
+                                style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            )
                         }
                     }
                     cursor += brLen
@@ -633,7 +696,15 @@ private fun GhostTonalButton(
                             val rectTop = bottom - 2f * r
                             val startDeg = 90f + (s / blLen) * 90f
                             val sweepDeg = (e - s) / blLen * 90f
-                            drawArc(color = highlightColor, startAngle = startDeg, sweepAngle = sweepDeg, useCenter = false, topLeft = Offset(rectLeft, rectTop), size = androidx.compose.ui.geometry.Size(2f * r, 2f * r), style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                            drawArc(
+                                color = highlightColor,
+                                startAngle = startDeg,
+                                sweepAngle = sweepDeg,
+                                useCenter = false,
+                                topLeft = Offset(rectLeft, rectTop),
+                                size = androidx.compose.ui.geometry.Size(2f * r, 2f * r),
+                                style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            )
                         }
                     }
                     cursor += blLen
@@ -658,10 +729,19 @@ private fun GhostTonalButton(
                             val rectTop = top
                             val startDeg = 180f + (s / tlLen) * 90f
                             val sweepDeg = (e - s) / tlLen * 90f
-                            drawArc(color = highlightColor, startAngle = startDeg, sweepAngle = sweepDeg, useCenter = false, topLeft = Offset(rectLeft, rectTop), size = androidx.compose.ui.geometry.Size(2f * r, 2f * r), style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+                            drawArc(
+                                color = highlightColor,
+                                startAngle = startDeg,
+                                sweepAngle = sweepDeg,
+                                useCenter = false,
+                                topLeft = Offset(rectLeft, rectTop),
+                                size = androidx.compose.ui.geometry.Size(2f * r, 2f * r),
+                                style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            )
                         }
                     }
                 }
+
                 fun drawSegment(s0: Float, s1: Float) {
                     if (s1 <= P) {
                         drawPartial(s0, s1)
@@ -670,6 +750,7 @@ private fun GhostTonalButton(
                         drawPartial(0f, s1 - P)
                     }
                 }
+
                 val startS = phase * P
                 val endS = startS + bandLen
                 drawSegment(startS, endS)
@@ -701,7 +782,9 @@ private fun SpeedModePanel(
         border = BorderStroke(1.dp, border)
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -885,8 +968,14 @@ private fun Segmented(
     val hDp by animateDpAsState(targetValue = with(density) { (if (targetH > 0f) targetH else fallbackH).toDp() }, animationSpec = tween(280, easing = FastOutSlowInEasing), label = "segH")
     val bg = remember { Color(0xFF0E1624) }
     val indicatorColor = remember { Color(0xFF1B2B45) }
-    Box(Modifier.clip(RoundedCornerShape(12.dp)).background(bg).padding(3.dp)) {
-        Surface(color = indicatorColor, shape = RoundedCornerShape(10.dp), shadowElevation = 0.dp, modifier = Modifier.offset(x = xDp).width(wDp).height(hDp)) {}
+    Box(Modifier
+        .clip(RoundedCornerShape(12.dp))
+        .background(bg)
+        .padding(3.dp)) {
+        Surface(color = indicatorColor, shape = RoundedCornerShape(10.dp), shadowElevation = 0.dp, modifier = Modifier
+            .offset(x = xDp)
+            .width(wDp)
+            .height(hDp)) {}
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             val onSelectState by rememberUpdatedState(onSelect)
             options.forEachIndexed { idx, (label, value) ->
@@ -911,6 +1000,8 @@ private fun Segmented(
         }
     }
 }
+
+/* ----------------------------- UI PACKET ADAPTER ----------------------------- */
 
 private data class UiPacketItem(val id: String, val model: UiPacket, val contentHash: Int)
 
@@ -951,6 +1042,7 @@ private class UiPacketAdapter {
         }
         while (items.size > newProjected.size) items.removeAt(items.lastIndex)
     }
+
     private fun fastContentHash(m: UiPacket): Int {
         var h = 17
         h = 31 * h + (m.raw.timestamp xor (m.raw.timestamp ushr 32)).toInt()
@@ -966,6 +1058,8 @@ private class UiPacketAdapter {
 @Composable
 private fun rememberUiPacketAdapter(): UiPacketAdapter = remember { UiPacketAdapter() }
 
+/* ------------------------------------------------------------------------ */
+
 @Composable
 private fun FilterBar(
     text: String,
@@ -978,7 +1072,9 @@ private fun FilterBar(
     val focusManager = LocalFocusManager.current
     val keyboardVisible by rememberKeyboardVisible()
     LaunchedEffect(keyboardVisible) { if (!keyboardVisible) focusManager.clearFocus(force = false) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+    Column(Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 12.dp)) {
         GhostFilterField(
             value = text,
             onValueChange = onText,
@@ -1001,83 +1097,6 @@ private fun FilterBar(
             Spacer(Modifier.width(8.dp))
             Text(humanBytes(clampedValue), color = Color(0xFF7BD7FF))
         }
-    }
-}
-
-@Composable
-private fun PacketList(
-    isRunning: Boolean,
-    adapterItems: List<UiPacketItem>,
-    rawItems: List<UiPacket>,
-    pinnedUids: Set<Int>,
-    highlightedKeys: Set<String>,
-    onPin: (Int) -> Unit,
-    onShareWindowJson: () -> Unit,
-    onCopied: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val listState = rememberLazyListState()
-    val isEmpty = adapterItems.isEmpty() && rawItems.isEmpty()
-    if (isEmpty) {
-        EmptyState(isRunning = isRunning)
-        return
-    }
-    val pinnedLatest = remember(rawItems, pinnedUids) {
-        val map = HashMap<Int, UiPacket>()
-        for (it in rawItems) {
-            val uid = it.raw.uid ?: -1
-            if (uid in pinnedUids && uid >= 0) {
-                val curr = map[uid]
-                if (curr == null || it.raw.timestamp > curr.raw.timestamp) map[uid] = it
-            }
-        }
-        map.values.sortedBy { it.app.lowercase(Locale.getDefault()) }
-    }
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxSize().padding(horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(bottom = 16.dp)
-    ) {
-        if (pinnedLatest.isNotEmpty()) {
-            stickyHeader {
-                Surface(color = Color(0xFF0E141B), tonalElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 6.dp)) {
-                        Text("Pinned", color = Color(0xFF9EB2C0), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
-                        pinnedLatest.forEach { r ->
-                            PinnedRowCompact(row = r, onUnpin = { uid -> onPin(uid) }, onShareWindowJson = onShareWindowJson)
-                            Spacer(Modifier.height(6.dp))
-                        }
-                    }
-                }
-            }
-        }
-        items(items = adapterItems, key = { it.id }) { item ->
-            PacketRow(
-                row = item.model,
-                highlighted = highlightedKeys.contains(item.model.key),
-                onPin = onPin,
-                onShareWindowJson = onShareWindowJson,
-                onCopied = onCopied,
-                modifier = Modifier
-            )
-        }
-    }
-}
-
-@Composable
-private fun EmptyState(isRunning: Boolean) {
-    val hint = if (isRunning) "Listening for packets…" else "Tap Start to begin capture"
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(Modifier.height(16.dp))
-        Text("No packets yet", color = Color(0xFF9EB2C0), style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(4.dp))
-        Text(hint, color = Color(0xFF6E8296), style = MaterialTheme.typography.bodyMedium)
-        Spacer(Modifier.height(32.dp))
     }
 }
 
@@ -1105,6 +1124,97 @@ private fun PinnedRowCompact(
     }
 }
 
+@Composable
+private fun EmptyState(isRunning: Boolean) {
+    val hint = if (isRunning) "Listening for packets…" else "Tap Start to begin capture"
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(Modifier.height(16.dp))
+        Text("No packets yet", color = Color(0xFF9EB2C0), style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(hint, color = Color(0xFF6E8296), style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.height(32.dp))
+    }
+}
+
+@Composable
+private fun PacketList(
+    isRunning: Boolean,
+    adapterItems: List<UiPacketItem>,
+    rawItems: List<UiPacket>,
+    pinnedUids: Set<Int>,
+    highlightedKeys: Set<String>,
+    onPin: (Int) -> Unit,
+    onShareWindowJson: () -> Unit,
+    onCopied: (String) -> Unit,
+    vm: MonitorViewModel,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+    val isEmpty = adapterItems.isEmpty() && rawItems.isEmpty()
+    if (isEmpty) {
+        EmptyState(isRunning = isRunning)
+        return
+    }
+
+    val pinnedLatest = remember(rawItems, pinnedUids) {
+        val map = HashMap<Int, UiPacket>()
+        for (it in rawItems) {
+            val uid = it.raw.uid ?: -1
+            if (uid in pinnedUids && uid >= 0) {
+                val curr = map[uid]
+                if (curr == null || it.raw.timestamp > curr.raw.timestamp) map[uid] = it
+            }
+        }
+        map.values.sortedBy { it.app.lowercase(Locale.getDefault()) }
+    }
+
+    val windowMaxBytes = remember(rawItems) { rawItems.maxOfOrNull { it.raw.bytes }?.toInt() ?: 1 }
+
+    LazyColumn(
+        state = listState,
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 16.dp)
+    ) {
+        if (pinnedLatest.isNotEmpty()) {
+            stickyHeader {
+                Surface(color = Color(0xFF0E141B), tonalElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 6.dp)) {
+                        Text("Pinned", color = Color(0xFF9EB2C0), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
+                        pinnedLatest.forEach { r ->
+                            PinnedRowCompact(row = r, onUnpin = { uid -> onPin(uid) }, onShareWindowJson = onShareWindowJson)
+                            Spacer(Modifier.height(6.dp))
+                        }
+                    }
+                }
+            }
+        }
+        items(items = adapterItems, key = { it.id }) { item ->
+            PacketRow(
+                row = item.model,
+                highlighted = highlightedKeys.contains(item.model.key),
+                onPin = onPin,
+                onShareWindowJson = onShareWindowJson,
+                onCopied = onCopied,
+                vm = vm,
+                maxBytesInWindow = windowMaxBytes
+            )
+        }
+    }
+}
+
+/* ---------------- Zengin satır ---------------- */
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PacketRow(
@@ -1113,14 +1223,74 @@ private fun PacketRow(
     onPin: (Int) -> Unit,
     onShareWindowJson: () -> Unit,
     onCopied: (String) -> Unit,
+    vm: MonitorViewModel,
+    maxBytesInWindow: Int,
     modifier: Modifier = Modifier
 ) {
     val border = remember { Brush.linearGradient(listOf(Color(0xFF1B2B45), Color(0xFF20304F), Color(0xFF1B2B45))) }
     val uid = row.raw.uid ?: -1
-    val dir = inferDirection(row)
     val clipboard = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
+
     val flash by animateFloatAsState(targetValue = if (highlighted) 1f else 0f, animationSpec = tween(350, easing = FastOutSlowInEasing), label = "anomaly-flash")
+
+    // Reverse DNS + ASN/Country (lazy)
+    val fromInit = row.from
+    val toInit = row.to
+    var fromDisp by remember(row.key) { mutableStateOf(fromInit) }
+    var toDisp by remember(row.key) { mutableStateOf(toInit) }
+    var asnText by remember(row.key) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(row.key) {
+        fun parseIp(s: String): String? =
+            s.substringBeforeLast(':', s).takeIf { it.isNotBlank() && it != "—" && it != "-" }
+
+        val remoteIp = parseIp(toInit)
+        val localIp = parseIp(fromInit)
+
+        if (remoteIp != null) {
+            vm.resolveHost(remoteIp)?.let { host ->
+                val port = toInit.substringAfterLast(':', missingDelimiterValue = "")
+                toDisp = if (port.isNotEmpty()) "$host:$port" else host
+            }
+            vm.asnCountry(remoteIp)?.let { info ->
+                asnText = "AS${info.asn} • ${info.cc}"
+            }
+        }
+        if (localIp != null) {
+            vm.resolveHost(localIp)?.let { host ->
+                val port = fromInit.substringAfterLast(':', missingDelimiterValue = "")
+                fromDisp = if (port.isNotEmpty()) "$host:$port" else host
+            }
+        }
+    }
+
+    // Yön/renk
+    val dir = when {
+        row.raw.protocol.equals("AGG", true) -> Direction.MIX
+        (row.raw.remotePort in 1..1024) && (row.raw.localPort !in 1..1024) -> Direction.TX
+        (row.raw.localPort in 1..1024) && (row.raw.remotePort !in 1..1024) -> Direction.RX
+        else -> Direction.MIX
+    }
+    val dirLabel = when (dir) {
+        Direction.TX -> "TX"; Direction.RX -> "RX"; Direction.MIX -> "MIX"
+    }
+    val dirColor = when (dir) {
+        Direction.TX -> Color(0xFFFFB86C); Direction.RX -> Color(0xFF7BD7FF); Direction.MIX -> Color(0xFFBCE784)
+    }
+
+    val lPort = row.raw.localPort
+    val rPort = row.raw.remotePort
+    val lSvc = serviceName(lPort)
+    val rSvc = serviceName(rPort)
+
+    val leftIsLan = isPrivateV4(row.raw.localAddress ?: "")
+    val rightIsLan = isPrivateV4(row.raw.remoteAddress ?: "")
+
+    val share = remember(row.raw.bytes, maxBytesInWindow) {
+        row.raw.bytes.toFloat() / maxBytesInWindow.toFloat().coerceAtLeast(1f)
+    }
+
     Surface(
         color = Color(0xFF0F1726),
         shape = RoundedCornerShape(16.dp),
@@ -1136,60 +1306,54 @@ private fun PacketRow(
                 }
             }
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                    Text(row.app, style = MaterialTheme.typography.titleMedium, color = Color(0xFF7BD7FF), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Column(Modifier
+                    .weight(1f)
+                    .padding(end = 16.dp)) {
+                    Text(row.app, style = MaterialTheme.typography.titleMedium, color = Color(0xFF7BD7FF), maxLines = 2, overflow = TextOverflow.Ellipsis)
                     val uidText = "uid:${row.raw.uid ?: -1}"
                     val pkgText = row.raw.packageName ?: "—"
                     Text("$pkgText  •  $uidText", style = MaterialTheme.typography.labelMedium, color = Color(0xFF8EA0B5), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 Text(row.time, color = Color(0xFF9EB2C0), style = MaterialTheme.typography.labelLarge)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val dirLabel = when (dir) {
-                    Direction.TX -> "TX"; Direction.RX -> "RX"; Direction.MIX -> "MIX"; null -> "—"
-                }
-                val dirColor = when (dir) {
-                    Direction.TX -> Color(0xFFFFB86C); Direction.RX -> Color(0xFF7BD7FF); Direction.MIX -> Color(0xFFBCE784); null -> Color(0xFF9EB2C0)
-                }
-                Text(row.proto, color = Color(0xFF30E3A2), style = MaterialTheme.typography.bodyMedium)
-                Text("•", color = Color(0xFF8EA0B5), style = MaterialTheme.typography.bodyMedium)
-                Text(dirLabel, color = dirColor, style = MaterialTheme.typography.bodyMedium)
-                Text("•", color = Color(0xFF8EA0B5), style = MaterialTheme.typography.bodyMedium)
-                Text(row.bytesLabel, color = Color(0xFF30E3A2), style = MaterialTheme.typography.bodyMedium)
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                StatChip(text = row.proto, color = Color(0xFF30E3A2))
+                StatChip(text = dirLabel, color = dirColor)
+                StatChip(text = row.bytesLabel, color = Color(0xFF30E3A2))
+                if (asnText != null) StatChip(text = asnText!!, color = Color(0xFF9EB2C0))
             }
+
+            BytesBar(fraction = share)
+
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "from  ${row.from}",
-                    color = Color(0xFFB8C8D8),
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.combinedClickable(
-                        onClick = {},
-                        onLongClick = {
-                            clipboard.setText(AnnotatedString(row.from))
-                            onCopied("From")
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        }
-                    )
+                EndpointText(
+                    title = "from",
+                    value = fromDisp,
+                    tag = if (leftIsLan) "LAN" else "LOCAL",
+                    service = lSvc,
+                    onCopy = {
+                        clipboard.setText(AnnotatedString(row.from))
+                        onCopied("From")
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
                 )
                 Text("→", color = Color(0xFF8EA0B5), style = MaterialTheme.typography.bodySmall)
-                Text(
-                    "to  ${row.to}",
-                    color = Color(0xFFB8C8D8),
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.combinedClickable(
-                        onClick = {},
-                        onLongClick = {
-                            clipboard.setText(AnnotatedString(row.to))
-                            onCopied("To")
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        }
-                    )
+                EndpointText(
+                    title = "to",
+                    value = toDisp,
+                    tag = if (rightIsLan) "LAN" else "INTERNET",
+                    service = rSvc,
+                    onCopy = {
+                        clipboard.setText(AnnotatedString(row.to))
+                        onCopied("To")
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
                 )
             }
+
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = { if (uid >= 0) onPin(uid) }) { Text("Pin") }
                 TextButton(onClick = onShareWindowJson) { Text("Share JSON") }
@@ -1198,21 +1362,72 @@ private fun PacketRow(
     }
 }
 
-private enum class Direction { TX, RX, MIX }
-private enum class TopAction { Running, Settling, Idle }
-
-private fun inferDirection(row: UiPacket): Direction? {
-    val m = row.raw
-    if (m.protocol.equals("AGG", true)) return Direction.MIX
-    val lp = m.localPort
-    val rp = m.remotePort
-    val localKnown = lp in 1..1024
-    val remoteKnown = rp in 1..1024
-    return when {
-        !localKnown && remoteKnown -> Direction.TX
-        localKnown && !remoteKnown -> Direction.RX
-        else -> null
+@Composable
+private fun StatChip(text: String, color: Color) {
+    Surface(shape = RoundedCornerShape(8.dp), color = Color(0x15FFFFFF), border = BorderStroke(1.dp, color.copy(alpha = 0.25f))) {
+        Text(text, color = color, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
     }
+}
+
+@Composable
+private fun BytesBar(fraction: Float) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(6.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color(0xFF121A2A))
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .fillMaxHeight()
+                .background(Brush.horizontalGradient(listOf(Color(0xFF2CD4C5), Color(0xFF7BD7FF))))
+        )
+    }
+}
+
+@Composable
+private fun EndpointText(
+    title: String,
+    value: String,
+    tag: String,
+    service: String?,
+    onCopy: () -> Unit
+) {
+    val textColor = Color(0xFFB8C8D8)
+    Column(
+        modifier = Modifier
+            .combinedClickable(onClick = {}, onLongClick = onCopy)
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("$title ", color = Color(0xFF8EA0B5), style = MaterialTheme.typography.labelSmall)
+            TagChip(tag)
+            if (!service.isNullOrBlank()) TagChip(service)
+        }
+        Text(value, color = textColor, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun TagChip(text: String) {
+    Surface(shape = RoundedCornerShape(6.dp), color = Color(0x2230E3A2)) {
+        Text(text, color = Color(0xFF30E3A2), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+    }
+}
+
+/* ---------------- Yardımcılar ---------------- */
+
+private fun serviceName(port: Int): String? =
+    if (port == 0) null else MonitorViewModel.SERVICE_NAMES[port]
+
+private fun isPrivateV4(ip: String): Boolean {
+    if (!ip.contains('.')) return false
+    val p = ip.split('.').mapNotNull { it.toIntOrNull() }
+    if (p.size != 4) return false
+    val a = p[0];
+    val b = p[1]
+    return (a == 10) || (a == 172 && b in 16..31) || (a == 192 && b == 168)
 }
 
 private fun shareWindowJson(
