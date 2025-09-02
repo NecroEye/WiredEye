@@ -1,92 +1,177 @@
 [versions]
+# Android Gradle & Kotlin
 agp = "8.12.2"
 kotlin = "2.2.10"
+parcelizePlugin = "2.2.10"
+ksp = "2.2.10-2.0.2"
+
+# AndroidX core & app compat
 coreKtx = "1.17.0"
+appcompat = "1.7.1"
+material = "1.12.0"
+
+# Compose
+activityCompose = "1.10.1"
+composeBom = "2025.08.01"
+lifecycleRuntimeKtx = "2.9.3"
+lifecycleRuntimeCompose = "2.9.3"
+
+# Test
 junit = "4.13.2"
 junitVersion = "1.3.0"
 espressoCore = "3.7.0"
-lifecycleRuntimeKtx = "2.9.3"
-activityCompose = "1.10.1"
-composeBom = "2025.08.01"
-appcompat = "1.7.1"
-material = "1.12.0"
-ksp = "2.2.10-2.0.2"
-koin = "4.1.0"
+
+# WorkManager & Room
 workRuntime = "2.10.3"
 room = "2.7.2"
+
+# Serialization / Coroutines
 kotlinxSerialization = "1.9.0"
+coroutines = "1.10.2"
+
+# Networking stack
 okio = "3.16.0"
 okhttp = "5.1.0"
-parcelizePlugin = "2.2.10"
-security = "1.1.0"
-lifecycleRuntimeCompose = "2.9.3"
-datastore = "1.1.7"
-coroutines = "1.10.2"
-retrofit = "3.0.0"
+retrofit = "3.0.0" # (Ensure this is correct for your chosen Retrofit artifact.)
+
+# Moshi
 moshi = "1.15.2"
 
+# DataStore & Security
+datastore = "1.1.7"
+security = "1.1.0"
+
+# DI
+koin = "4.1.0"
+
+# ---- Advanced crypto / parsing / capture ----
+bouncycastle = "1.81"
+protobuf = "4.32.0"
+wire = "5.3.11"
+jackson = "2.20.0"
+pcap4j = "1.8.2"
+androidProcesses = "1.4.0"
+
+# =================
+# Library Aliases
+# =================
 [libraries]
+# Core / AppCompat / Material (non-Compose)
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
-junit = { group = "junit", name = "junit", version.ref = "junit" }
-androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
-androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+
+# Lifecycle
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycleRuntimeCompose" }
+
+# Activity Compose
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+
+# Compose BOM (pin versions for Compose libs declared without explicit versions)
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+
+# Compose UI/M3 (version comes from BOM)
 androidx-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
-androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
-androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
-androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+androidx-compose-animation = { group = "androidx.compose.animation", name = "animation" }
+androidx-compose-animation-graphics = { group = "androidx.compose.animation", name = "animation-graphics" }
 
+# Compose Test (version from BOM)
+androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+
+# Testing (JUnit / Espresso)
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
+androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+
+# Koin DI
 koin-android = { group = "io.insert-koin", name = "koin-android", version.ref = "koin" }
 koin-androidx-workmanager = { group = "io.insert-koin", name = "koin-androidx-workmanager", version.ref = "koin" }
+koin-androidx-compose = { group = "io.insert-koin", name = "koin-androidx-compose", version.ref = "koin" }
 
+# WorkManager
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntime" }
 
+# Room
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 
+# Kotlinx Serialization
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+
+# Coroutines
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+
+# Okio / OkHttp
 okio = { group = "com.squareup.okio", name = "okio", version.ref = "okio" }
-okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" } # OkHttp eklendi
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
 
+# Retrofit (+ converters)
 retrofit2 = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 retrofit2-converter-moshi = { group = "com.squareup.retrofit2", name = "converter-moshi", version.ref = "retrofit" }
 retrofit2-converter-scalars = { group = "com.squareup.retrofit2", name = "converter-scalars", version.ref = "retrofit" }
 
+# Moshi
 moshi = { group = "com.squareup.moshi", name = "moshi", version.ref = "moshi" }
 moshi-kotlin = { group = "com.squareup.moshi", name = "moshi-kotlin", version.ref = "moshi" }
 moshi-adapters = { group = "com.squareup.moshi", name = "moshi-adapters", version.ref = "moshi" }
 moshi-kotlin-codegen = { group = "com.squareup.moshi", name = "moshi-kotlin-codegen", version.ref = "moshi" }
 
-androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
-androidx-compose-animation = { group = "androidx.compose.animation", name = "animation" }
-androidx-compose-animation-graphics = { group = "androidx.compose.animation", name = "animation-graphics" }
-androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycleRuntimeCompose" }
-koin-androidx-compose = { group = "io.insert-koin", name = "koin-androidx-compose", version.ref = "koin" }
+# DataStore & Security
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 androidx-datastore-preferences-core = { group = "androidx.datastore", name = "datastore-preferences-core", version.ref = "datastore" }
 androidx-datastore = { group = "androidx.datastore", name = "datastore", version.ref = "datastore" }
 androidx-datastore-core-okio = { group = "androidx.datastore", name = "datastore-core-okio", version.ref = "datastore" }
-kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
-kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
-androidx-security-crypto = {module = "androidx.security:security-crypto", version.ref = "security" }
+androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "security" }
 
+# ---- Advanced decryption / parsing / capture ----
+# BouncyCastle
+bouncycastle-bcprov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
+bouncycastle-bcpkix = { group = "org.bouncycastle", name = "bcpkix-jdk18on", version.ref = "bouncycastle" }
+
+# Protobuf (full) + optional lite variants
+protobuf-java = { group = "com.google.protobuf", name = "protobuf-java", version.ref = "protobuf" }
+protobuf-kotlin = { group = "com.google.protobuf", name = "protobuf-kotlin", version.ref = "protobuf" }
+protobuf-javalite = { group = "com.google.protobuf", name = "protobuf-javalite", version.ref = "protobuf" }
+protobuf-kotlin-lite = { group = "com.google.protobuf", name = "protobuf-kotlin-lite", version.ref = "protobuf" }
+
+# Wire runtime
+wire-runtime = { group = "com.squareup.wire", name = "wire-runtime", version.ref = "wire" }
+
+# Jackson
+jackson-databind = { group = "com.fasterxml.jackson.core", name = "jackson-databind", version.ref = "jackson" }
+jackson-module-kotlin = { group = "com.fasterxml.jackson.module", name = "jackson-module-kotlin", version.ref = "jackson" }
+
+# pcap4j
+pcap4j-core = { group = "org.pcap4j", name = "pcap4j-core", version.ref = "pcap4j" }
+pcap4j-packetfactory-static = { group = "org.pcap4j", name = "pcap4j-packetfactory-static", version.ref = "pcap4j" }
+
+# Process/memory tools
+android-processes = { group = "com.jaredrummler", name = "android-processes", version.ref = "androidProcesses" }
+
+# =================
+# Plugins
+# =================
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-android-library = { id = "com.android.library", version.ref = "agp" }
-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref = "parcelizePlugin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 
+# =================
+# Bundles
+# =================
 [bundles]
 network-retrofit-moshi = [
   "retrofit2",
@@ -102,10 +187,26 @@ datastore-preferences = [
   "androidx-datastore-preferences",
   "androidx-datastore-preferences-core",
   "androidx-datastore-core-okio",
-  "androidx-security-crypto",
+  "androidx-security-crypto"
 ]
 
 coroutines = [
   "kotlinx-coroutines-android",
   "kotlinx-coroutines-core"
+]
+
+advancedDecryption = [
+  "bouncycastle-bcprov",
+  "bouncycastle-bcpkix",
+  "protobuf-java",
+  "protobuf-kotlin",
+  "wire-runtime",
+  "jackson-databind",
+  "jackson-module-kotlin"
+]
+
+advancedNetworkAnalysis = [
+  "pcap4j-core",
+  "pcap4j-packetfactory-static",
+  "android-processes"
 ]
