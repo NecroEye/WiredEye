@@ -50,7 +50,6 @@ protobuf = "4.32.0"
 wire = "5.3.11"
 jackson = "2.20.0"
 pcap4j = "1.8.2"
-androidProcesses = "1.4.0"
 
 # =================
 # Library Aliases
@@ -154,8 +153,6 @@ jackson-module-kotlin = { group = "com.fasterxml.jackson.module", name = "jackso
 pcap4j-core = { group = "org.pcap4j", name = "pcap4j-core", version.ref = "pcap4j" }
 pcap4j-packetfactory-static = { group = "org.pcap4j", name = "pcap4j-packetfactory-static", version.ref = "pcap4j" }
 
-# Process/memory tools
-android-processes = { group = "com.jaredrummler", name = "android-processes", version.ref = "androidProcesses" }
 
 # =================
 # Plugins
@@ -208,5 +205,4 @@ advancedDecryption = [
 advancedNetworkAnalysis = [
   "pcap4j-core",
   "pcap4j-packetfactory-static",
-  "android-processes"
 ]
