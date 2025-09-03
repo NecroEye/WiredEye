@@ -6,6 +6,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import com.muratcangzm.common.di.DispatchersQualifiers
 import com.muratcangzm.network.engine.PacketCaptureEngine
+import com.muratcangzm.network.engine.PacketEventBus
 import com.muratcangzm.network.engine.StatsOnlyEngine
 import com.muratcangzm.network.vpn.DnsVpnController
 import com.muratcangzm.network.vpn.DnsVpnControllerImpl
@@ -20,26 +21,29 @@ object EngineQualifiers {
     val DnsOnly = named("engine_dns_only")
 }
 
+
 val networkModule = module {
 
-    single { androidContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager }
-    single { androidContext().getSystemService(Context.NETWORK_STATS_SERVICE) as NetworkStatsManager }
+    // --- System services / context ---
+    single<Application> { androidContext().applicationContext as Application }
 
-    single<DnsVpnController> { DnsVpnControllerImpl(androidContext()) }
-
-    single<PacketCaptureEngine>(EngineQualifiers.StatsOnly) {
-        val appCtx = androidContext().applicationContext as Application
-        val cm = get<ConnectivityManager>()
-        val nsm = get<NetworkStatsManager>()
-        val defaultDispatcher = get<CoroutineDispatcher>(DispatchersQualifiers.Default)
-        StatsOnlyEngine(appCtx, cm, nsm, defaultDispatcher) // info/state içeride yönetiliyor
+    single {
+        androidContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     }
 
-    single<PacketCaptureEngine>(EngineQualifiers.Active) {
-        when (getKoin().getProperty<String>("engine", "stats")) {
-            "dns" -> getOrNull<PacketCaptureEngine>(EngineQualifiers.DnsOnly)
-                ?: get(EngineQualifiers.StatsOnly)
-            else -> get(EngineQualifiers.StatsOnly)
-        }
+    single {
+        androidContext().getSystemService(Context.NETWORK_STATS_SERVICE) as NetworkStatsManager
+    }
+
+    single { PacketEventBus() }
+
+    factory<PacketCaptureEngine>(qualifier = EngineQualifiers.Active) {
+        StatsOnlyEngine(
+            app = get(),
+            cm = get(),
+            nsm = get(),
+            dispatcher = get(DispatchersQualifiers.IO),
+            bus = get(),
+        )
     }
 }

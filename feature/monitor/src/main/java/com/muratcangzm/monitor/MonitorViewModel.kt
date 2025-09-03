@@ -1,6 +1,6 @@
-// MonitorViewModel.kt
 package com.muratcangzm.monitor
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.muratcangzm.data.helper.UidResolver
@@ -15,20 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.conflate
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.sample
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -42,17 +29,17 @@ class MonitorViewModel(
     private val resolver: UidResolver
 ) : ViewModel() {
 
-    private val filterText = kotlinx.coroutines.flow.MutableStateFlow("")
-    private val minBytes = kotlinx.coroutines.flow.MutableStateFlow(0L)
-    private val windowMillis = kotlinx.coroutines.flow.MutableStateFlow(10_000L)
-    private val clearAfter = kotlinx.coroutines.flow.MutableStateFlow(0L)
-    private val speedMode = kotlinx.coroutines.flow.MutableStateFlow(SpeedMode.FAST)
-    private val viewMode = kotlinx.coroutines.flow.MutableStateFlow(ViewMode.RAW)
+    private val filterText = MutableStateFlow("")
+    private val minBytes = MutableStateFlow(0L)
+    private val windowMillis = MutableStateFlow(10_000L)
+    private val clearAfter = MutableStateFlow(0L)
+    private val speedMode = MutableStateFlow(SpeedMode.FAST)
+    private val viewMode = MutableStateFlow(ViewMode.RAW)
     private val engineState: StateFlow<EngineState> = engine.state
-    private val totalAllTime = kotlinx.coroutines.flow.MutableStateFlow(0L)
-    private val seenApps = kotlinx.coroutines.flow.MutableStateFlow(emptySet<String>())
-    private val pinnedUids = kotlinx.coroutines.flow.MutableStateFlow<Set<Int>>(emptySet())
-    private val mutedUids = kotlinx.coroutines.flow.MutableStateFlow<Set<Int>>(emptySet())
+    private val totalAllTime = MutableStateFlow(0L)
+    private val seenApps = MutableStateFlow(emptySet<String>())
+    private val pinnedUids = MutableStateFlow<Set<Int>>(emptySet())
+    private val mutedUids = MutableStateFlow<Set<Int>>(emptySet())
 
     // Resolver caches
     private val labelCache = ConcurrentHashMap<Int, String?>()
@@ -60,11 +47,10 @@ class MonitorViewModel(
 
     // Spike detection
     private data class RateEntry(var lastTs: Long, var ema: Double, var lastAlertTs: Long)
-
     private val rateByHost = ConcurrentHashMap<String, RateEntry>()
     private val seenHostKeys = ConcurrentHashMap<String, Long>()
 
-    private val anomalyHighlights = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+    private val anomalyHighlights = MutableStateFlow<Set<String>>(emptySet())
     private val _anomalyEvents = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val anomalyEvents: SharedFlow<String> = _anomalyEvents
 
@@ -84,6 +70,7 @@ class MonitorViewModel(
     init {
         viewModelScope.launch {
             engine.events.collect { meta ->
+                Log.d("WireLog","VM got meta ${meta.protocol} ${meta.bytes}")
                 repo.recordPacketMeta(meta)
                 detectByteSpike(meta)
                 detectNewHostSpike(meta)
@@ -443,7 +430,7 @@ class MonitorViewModel(
         if (!cur.contains(uiKey)) {
             anomalyHighlights.value = cur + uiKey
             viewModelScope.launch {
-                delay(HIGHLIGHT_HOLD_MS)
+                kotlinx.coroutines.delay(HIGHLIGHT_HOLD_MS)
                 anomalyHighlights.value = anomalyHighlights.value - uiKey
             }
         }
@@ -462,12 +449,12 @@ class MonitorViewModel(
         while (v >= 1024.0 && i < units.lastIndex) {
             v /= 1024.0; i++
         }
-        return String.format(java.util.Locale.getDefault(), "%.1f %s", v, units[i])
+        return String.format(Locale.getDefault(), "%.1f %s", v, units[i])
     }
 
     private fun humanBytes(b: Long): String {
         val u = arrayOf("B", "KB", "MB", "GB", "TB")
-        var v = b.toDouble();
+        var v = b.toDouble()
         var i = 0
         while (v >= 1024 && i < u.lastIndex) {
             v /= 1024; i++

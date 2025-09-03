@@ -13,7 +13,10 @@ data class PacketMeta(
     val localPort: Int,
     val remoteAddress: String,
     val remotePort: Int,
-    val bytes: Long
+    val bytes: Long,
+    val tls: Boolean = false,
+    val sni: String? = null,
+    val dir: String? = null
 ) {
     fun toEntity() = PacketLog(
         timestamp = timestamp,
