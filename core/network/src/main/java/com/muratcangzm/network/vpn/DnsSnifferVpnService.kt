@@ -11,6 +11,10 @@ import androidx.annotation.RequiresPermission
 import com.muratcangzm.data.model.meta.DnsMeta
 import com.muratcangzm.data.model.meta.PacketMeta
 import com.muratcangzm.data.repo.packetRepo.PacketRepository
+import com.muratcangzm.network.common.FlowKey
+import com.muratcangzm.network.common.UID_TTL_MS
+import com.muratcangzm.network.common.UidEntry
+import com.muratcangzm.network.common.uidCache
 import com.muratcangzm.network.engine.PacketEventBus
 import kotlinx.coroutines.*
 import org.koin.android.ext.android.inject
@@ -61,10 +65,12 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
         return START_STICKY
     }
 
-    override fun onRevoke() { stopSelf() }
+    override fun onRevoke() {
+        stopSelf()
+    }
 
     private fun emitMeta(meta: PacketMeta) {
-        Log.d("WireLog","emitMeta -> ${meta.protocol} ${meta.bytes}")
+        Log.d("WireLog", "emitMeta -> ${meta.protocol} ${meta.bytes}")
         bus.tryEmit(meta)
         scope.launch { repo.recordPacketMeta(meta) }
     }
@@ -95,12 +101,14 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
                 when (val ip = IpPacket.parse(ipBuf)) {
                     is IpPacket.Ipv4 -> when (ip.protocol) {
                         17 -> handleUdpV4(cm, ip)
-                        6  -> handleTcpV4(cm, ip)
+                        6 -> handleTcpV4(cm, ip)
                     }
+
                     is IpPacket.Ipv6 -> when (ip.nextHeader) {
                         17 -> handleUdpV6(cm, ip)
-                        6  -> handleTcpV6(cm, ip)
+                        6 -> handleTcpV6(cm, ip)
                     }
+
                     else -> Unit
                 }
             }
@@ -114,7 +122,7 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
 
     private fun handleUdpV4(cm: ConnectivityManager, ip: IpPacket.Ipv4) {
         val udp = UdpHeader.parse(ip.payload) ?: return
-        Log.d("AppLog","UDP4 ${ip.src.hostAddress}:${udp.srcPort} -> ${ip.dst.hostAddress}:${udp.dstPort} len=${udp.length}")
+        Log.d("AppLog", "UDP4 ${ip.src.hostAddress}:${udp.srcPort} -> ${ip.dst.hostAddress}:${udp.dstPort} len=${udp.length}")
         if (udp.dstPort == 53 || udp.srcPort == 53) {
             recordDns(ip.src.hostAddress, ip.dst.hostAddress, udp.payload)
         }
@@ -237,16 +245,35 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
         proto: Int,
         local: InetSocketAddress,
         remote: InetSocketAddress
-    ): Int? = runCatching {
-        val uid = cm.getConnectionOwnerUid(proto, local, remote)
-        if (uid <= 0) null else uid
-    }.getOrNull()
+    ): Int? {
+        val now = System.currentTimeMillis()
+        val key = FlowKey(
+            proto,
+            local.address.hostAddress.orEmpty(), local.port,
+            remote.address.hostAddress.orEmpty(), remote.port,
+        ).norm()
+
+        uidCache.get(key)?.let { if (it.expireAt > now) return it.uid }
+
+        // normal yön
+        val u1 = runCatching { cm.getConnectionOwnerUid(proto, local, remote) }.getOrNull()
+        val uid = when {
+            (u1 ?: -1) > 0 -> u1
+            else -> {
+                val u2 = runCatching { cm.getConnectionOwnerUid(proto, remote, local) }.getOrNull()
+                if ((u2 ?: -1) > 0) u2 else null
+            }
+        }
+
+        uidCache.put(key, UidEntry(uid, now + UID_TTL_MS))
+        return uid
+    }
 
     companion object {
         const val ACTION_START = "com.muratcangzm.monitor.VPN_START"
-        const val ACTION_STOP  = "com.muratcangzm.monitor.VPN_STOP"
+        const val ACTION_STOP = "com.muratcangzm.monitor.VPN_STOP"
         const val ACTION_EVENT = "com.muratcangzm.monitor.VPN_EVENT"
-        const val EXTRA_JSON   = "json"
+        const val EXTRA_JSON = "json"
 
         private const val SESSION_NAME = "MetaNet VPN Sniffer"
         private const val BUFFER_SIZE = 65535
@@ -275,7 +302,9 @@ private data class TcpHeader(
             bb.short // checksum
             bb.short // urg ptr
             val hdrLen = dataOff * 4
-            if (hdrLen < 20 || pos0 + hdrLen > bb.limit()) { bb.position(pos0); return null }
+            if (hdrLen < 20 || pos0 + hdrLen > bb.limit()) {
+                bb.position(pos0); return null
+            }
             val payload = bb.duplicate().apply {
                 position(pos0 + hdrLen); limit(bb.limit())
             }.slice()

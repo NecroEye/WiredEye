@@ -37,15 +37,12 @@ class MonitorViewModel(
     private val viewMode = MutableStateFlow(ViewMode.RAW)
     private val engineState: StateFlow<EngineState> = engine.state
     private val totalAllTime = MutableStateFlow(0L)
-    private val seenApps = MutableStateFlow(emptySet<String>())
     private val pinnedUids = MutableStateFlow<Set<Int>>(emptySet())
     private val mutedUids = MutableStateFlow<Set<Int>>(emptySet())
 
-    // Resolver caches
     private val labelCache = ConcurrentHashMap<Int, String?>()
     private val packageCache = ConcurrentHashMap<Int, String?>()
 
-    // Spike detection
     private data class RateEntry(var lastTs: Long, var ema: Double, var lastAlertTs: Long)
     private val rateByHost = ConcurrentHashMap<String, RateEntry>()
     private val seenHostKeys = ConcurrentHashMap<String, Long>()
@@ -59,7 +56,6 @@ class MonitorViewModel(
     private val ALERT_DEBOUNCE_MS = 5_000L
     private val HIGHLIGHT_HOLD_MS = 1_600L
 
-    // ---- Window stream ----
     @OptIn(ExperimentalCoroutinesApi::class)
     private val windowStream: Flow<List<PacketMeta>> =
         windowMillis
@@ -75,10 +71,6 @@ class MonitorViewModel(
                 detectByteSpike(meta)
                 detectNewHostSpike(meta)
                 totalAllTime.value = totalAllTime.value + meta.bytes
-                val key = appKey(meta)
-                if (key.isNotBlank() && !seenApps.value.contains(key)) {
-                    seenApps.value = seenApps.value + key
-                }
             }
         }
     }
@@ -107,7 +99,6 @@ class MonitorViewModel(
                 Controls(10_000L, "", 0L, emptyList(), 0L)
             )
 
-    /** Hız moduna göre UI örnekleme periyodu (ms). */
     private val cadenceFlow: StateFlow<Long> =
         speedMode.map { mode ->
             when (mode) {
@@ -159,7 +150,7 @@ class MonitorViewModel(
 
     private data class Stats(val total: Long, val uniqueApps: Int, val pps: Double, val kbs: Double)
 
-    @OptIn(ExperimentalCoroutinesApi::class)
+    @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     private val statsFlow: StateFlow<Stats> =
         cadenceFlow.flatMapLatest { cadence ->
             combine(windowStream, controls) { list, c ->
@@ -170,7 +161,13 @@ class MonitorViewModel(
                     val pps = if (c.win > 0) f.size / (c.win / 1000.0) else 0.0
                     val windowTotalBytes = f.sumOf { it.bytes }
                     val kbs = if (c.win > 0) (windowTotalBytes.toDouble() / (c.win / 1000.0)) / 1024.0 else 0.0
-                    Stats(totalAllTime.value, seenApps.value.size, pps, kbs)
+                    val uniqueAppsSet = HashSet<String>()
+                    for (packet in f) {
+                        val key = packet.packageName ?: "uid:${packet.uid ?: -1}"
+                        uniqueAppsSet.add(key)
+                    }
+                    val unique = uniqueAppsSet.size
+                    Stats(totalAllTime.value, unique, pps, kbs)
                 }
             }.sample(cadence)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Stats(0L, 0, 0.0, 0.0))
@@ -202,9 +199,6 @@ class MonitorViewModel(
             .combine(anomalyHighlights) { st, hi -> st.copy(anomalyKeys = hi) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorUiState())
 
-    // -------------------------------------------------------------------------
-    // Events
-    // -------------------------------------------------------------------------
     fun onEvent(ev: MonitorUiEvent) {
         when (ev) {
             is MonitorUiEvent.SetFilter -> filterText.value = ev.text
@@ -221,7 +215,6 @@ class MonitorViewModel(
                 val now = System.currentTimeMillis()
                 clearAfter.value = now
                 totalAllTime.value = 0L
-                seenApps.value = emptySet()
                 anomalyHighlights.value = emptySet()
                 rateByHost.clear()
                 seenHostKeys.clear()
@@ -239,9 +232,6 @@ class MonitorViewModel(
         mutedUids.value = if (cur.contains(uid)) cur - uid else cur + uid
     }
 
-    // -------------------------------------------------------------------------
-    // Mapping / Aggregation helpers
-    // -------------------------------------------------------------------------
     private fun PacketMeta.toUiPacket(): UiPacket {
         val uidStr = uid?.toString() ?: "?"
         val pkg = packageName ?: uid?.let { safePackage(it) } ?: ""
@@ -274,10 +264,8 @@ class MonitorViewModel(
         )
     }
 
-    /** Tek geçişte aggregate. */
     private fun aggregateToUi(list: List<PacketMeta>): List<UiPacket> {
         data class Agg(var total: Long, var last: PacketMeta)
-
         val est = min(max(16, list.size / 4), 1_000_000)
         val map = HashMap<String, Agg>(est)
         for (m in list) {
@@ -302,11 +290,6 @@ class MonitorViewModel(
 
     private fun aggKey(m: PacketMeta) =
         "${m.uid ?: -1}|${m.packageName ?: ""}|${m.protocol.uppercase()}|${m.remoteAddress}:${m.remotePort}"
-
-    private fun appKey(m: PacketMeta): String =
-        m.uid?.let { safeLabel(it) }?.takeIf { it.isNotBlank() }
-            ?: m.packageName?.takeIf { it.isNotBlank() }
-            ?: m.uid?.let { "uid:$it" } ?: ""
 
     private fun matchesFilter(m: PacketMeta, terms: List<String>): Boolean {
         if (terms.isEmpty()) return true
@@ -340,8 +323,6 @@ class MonitorViewModel(
         return v
     }
 
-    // -------------------- Reverse DNS + ASN helpers --------------------
-    // LRU cache (ip -> hostname)
     private val dnsLock = Any()
     private val dnsCache = object : java.util.LinkedHashMap<String, String>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 512
@@ -387,11 +368,9 @@ class MonitorViewModel(
         return (addr and mask) == (base and mask)
     }
 
-    // Regex'ler (IP)
     private val IP_REGEX = Regex("""^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+$""")
     private val IPV4_REGEX = Regex("""^(\d{1,3}\.){3}\d{1,3}$""")
 
-    // -------------------- Anomaly detection helpers --------------------
     private fun detectByteSpike(m: PacketMeta) {
         val host = m.remoteAddress ?: return
         if (host == "-" || m.bytes <= 0) return
