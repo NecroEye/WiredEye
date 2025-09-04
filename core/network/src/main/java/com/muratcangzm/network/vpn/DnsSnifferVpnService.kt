@@ -1,26 +1,18 @@
 package com.muratcangzm.network.vpn
 
 import android.Manifest
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.VpnService
-import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.annotation.RequiresPermission
-import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
 import com.muratcangzm.data.model.meta.DnsMeta
 import com.muratcangzm.data.model.meta.PacketMeta
 import com.muratcangzm.data.repo.packetRepo.PacketRepository
 import com.muratcangzm.network.engine.PacketEventBus
 import kotlinx.coroutines.*
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.koin.android.ext.android.inject
 import org.koin.core.component.KoinComponent
 import java.io.FileInputStream
@@ -52,13 +44,10 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
         val builder = Builder()
             .setSession(SESSION_NAME)
             .setMtu(1500)
-            // TUN’a yerel adresler (v4 + v6)
             .addAddress("10.88.0.2", 32)
             .addAddress("fd00:88::2", 128)
-            // Tüm trafiği TUN’a yönlendir
             .addRoute("0.0.0.0", 0)
             .addRoute("::", 0)
-            // Kendi uygulamamızı hariç tut (loop engelleme)
             .also { runCatching { it.addDisallowedApplication(packageName) } }
 
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -67,43 +56,22 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
 
         tun = builder.establish() ?: run { stopSelf(); return START_NOT_STICKY }
 
-        // ---- Foreground notification
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(
-            NotificationChannel(NOTIF_CHANNEL, "Monitoring", NotificationManager.IMPORTANCE_LOW)
-        )
-        val notif = NotificationCompat.Builder(this, NOTIF_CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle("VPN metadata monitoring active")
-            .setContentText("IP/TCP/UDP headers; DNS parsed (no payload).")
-            .setOngoing(true)
-            .build()
-
-        ServiceCompat.startForeground(
-            this,
-            NOTIF_ID,
-            notif,
-            if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
-        )
-
+        // Foreground/notification YOK — yalnızca okuma döngüsünü başlat.
         job = scope.launch { readLoop(tun!!) }
         return START_STICKY
     }
 
     override fun onRevoke() { stopSelf() }
 
-
     private fun emitMeta(meta: PacketMeta) {
         Log.d("WireLog","emitMeta -> ${meta.protocol} ${meta.bytes}")
-        bus.tryEmit(meta)                         // <— kritik hat
+        bus.tryEmit(meta)
         scope.launch { repo.recordPacketMeta(meta) }
     }
 
     override fun onDestroy() {
         runBlocking { job?.cancelAndJoin() }
         tun?.close()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIF_ID)
         super.onDestroy()
     }
 
@@ -119,10 +87,8 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
                 val n = input.read(buf)
                 if (n <= 0) continue
 
-                // Android VpnService: veri doğrudan IP ile başlar (tun_pi yok)
                 val ipBuf = ByteBuffer.wrap(buf, 0, n).order(ByteOrder.BIG_ENDIAN)
 
-                // Teşhis için: 0x45 -> IPv4, 0x60 -> IPv6
                 val first = ipBuf.get(0).toInt() and 0xFF
                 Log.d("AppLog", "pkt n=$n first=0x${first.toString(16)}")
 
@@ -258,16 +224,12 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
     }
 
     /* ---------------- helpers ---------------- */
-    
+
     private fun stopVpn() {
         runCatching { job?.cancel() }
         job = null
-
         runCatching { tun?.close() }
         tun = null
-
-        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIF_ID)
     }
 
     private fun tryResolveUid(
@@ -280,16 +242,6 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
         if (uid <= 0) null else uid
     }.getOrNull()
 
-//    private fun emitMeta(meta: PacketMeta) {
-//        val json = Json.encodeToString(meta)
-//        // Android 13+’ta implicit broadcast kaçmasın diye paketi hedefliyoruz
-//        sendBroadcast(
-//            Intent(ACTION_EVENT)
-//                .setPackage(packageName)
-//                .putExtra(EXTRA_JSON, json)
-//        )
-//    }
-
     companion object {
         const val ACTION_START = "com.muratcangzm.monitor.VPN_START"
         const val ACTION_STOP  = "com.muratcangzm.monitor.VPN_STOP"
@@ -297,8 +249,6 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
         const val EXTRA_JSON   = "json"
 
         private const val SESSION_NAME = "MetaNet VPN Sniffer"
-        private const val NOTIF_CHANNEL = "vpn_monitor"
-        private const val NOTIF_ID = 1001
         private const val BUFFER_SIZE = 65535
     }
 }

@@ -52,8 +52,7 @@ class StatsOnlyEngine(
         _state.value = EngineState.Starting
         scope.launch {
             Log.d(TAG, "Starting DnsSnifferVpnService …")
-            ContextCompat.startForegroundService(
-                app,
+            app.startService(
                 Intent(app, DnsSnifferVpnService::class.java)
                     .setAction(DnsSnifferVpnService.ACTION_START)
             )
