@@ -1,4 +1,3 @@
-// WiredEyeScreen.kt
 package com.muratcangzm.monitor
 
 import android.Manifest
@@ -66,6 +65,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -104,6 +104,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
@@ -158,6 +159,9 @@ private const val ACTION_STOP_ENGINE = "com.muratcangzm.monitor.ACTION_STOP_ENGI
 private enum class Direction { TX, RX, MIX }
 private enum class TopAction { Running, Settling, Idle }
 
+// Metrik türü (chip tıklamaları için)
+enum class StatKind { Total, Apps, Pps, Kbs }
+
 @androidx.compose.material3.ExperimentalMaterial3Api
 @SuppressLint("MissingPermission")
 @Composable
@@ -178,6 +182,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
         if (i != null) vpnLauncher.launch(i) else vm.onEvent(MonitorUiEvent.StartEngine)
     }
 
+    // Ağ değişimlerinde kısa bildirim + pencere temizleme
     DisposableEffect(Unit) {
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         var lastType: String? = null
@@ -200,32 +205,16 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
     }
 
     LaunchedEffect(state.isEngineRunning) { if (!state.isEngineRunning) isStopping = false }
+    LaunchedEffect(Unit) { vm.anomalyEvents.collect { msg -> snackbarHost.showSnackbar(msg) } }
 
-    LaunchedEffect(Unit) {
-        vm.anomalyEvents.collect { msg -> snackbarHost.showSnackbar(msg) }
-    }
-
-    DisposableEffect(Unit) {
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action == ACTION_STOP_ENGINE) {
-                    vm.onEvent(MonitorUiEvent.StopEngine)
-                    context.startService(Intent(context, DnsSnifferVpnService::class.java).setAction(DnsSnifferVpnService.ACTION_STOP))
-                    context.stopService(Intent(context, DnsSnifferVpnService::class.java))
-                    NotificationManagerCompat.from(context).cancel(NOTI_ID)
-                }
-            }
-        }
-        val filter = IntentFilter(ACTION_STOP_ENGINE)
-        if (Build.VERSION.SDK_INT >= 33)
-            ctx.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        else @Suppress("DEPRECATION") ctx.registerReceiver(receiver, filter)
-        onDispose { runCatching { ctx.unregisterReceiver(receiver) } }
-    }
-
+    // Bildirimde canli metrikler
     LaunchedEffect(state.isEngineRunning, state.throughputKbs, state.pps, state.speedMode, state.totalBytes) {
         updateRunningNotification(ctx, state.isEngineRunning, state.throughputKbs, state.pps, state.speedMode, state.totalBytes)
     }
+
+    // Dialog aç/kapat
+    var statDialog by rememberSaveable { mutableStateOf<StatKind?>(null) }
+    val blurRadius = if (statDialog != null) 16.dp else 0.dp
 
     val accent = remember { Color(0xFF7BD7FF) }
     val bg = remember { Brush.linearGradient(listOf(Color(0xFF0E141B), Color(0xFF0B1022), Color(0xFF0E141B))) }
@@ -234,7 +223,10 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Text(
                             text = "WiredEye — Realtime Metadata",
                             maxLines = 1,
@@ -273,7 +265,10 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                                     }
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        LiveDotGhost(running = state.isEngineRunning, modifier = Modifier.padding(start = 4.dp, end = 12.dp))
+                                        LiveDotGhost(
+                                            running = state.isEngineRunning,
+                                            modifier = Modifier.padding(start = 4.dp, end = 12.dp)
+                                        )
                                         Text("Stop")
                                     }
                                 }
@@ -304,7 +299,10 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                 .background(bg)
                 .padding(padd)
         ) {
-            Column(Modifier.fillMaxSize()) {
+
+            // ANA İÇERİK (dialog açıkken soft blur)
+            Column(Modifier.fillMaxSize().blur(blurRadius)) {
+
                 TechStatsBar(
                     state = state,
                     onWindowChange = { vm.onEvent(MonitorUiEvent.SetWindow(it)) },
@@ -312,8 +310,11 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                     viewMode = state.viewMode,
                     onViewModeChange = { mode -> vm.onEvent(MonitorUiEvent.SetViewMode(mode)) },
                     onClearAll = { vm.onEvent(MonitorUiEvent.ClearNow) },
+                    onChipClick = { kind -> statDialog = kind } // metrik chiplere tıklama
                 )
+
                 Spacer(Modifier.height(8.dp))
+
                 FilterBar(
                     text = state.filterText,
                     minBytes = state.minBytes,
@@ -322,6 +323,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                     onClear = { vm.onEvent(MonitorUiEvent.ClearFilter) },
                     onMinBytes = { vm.onEvent(MonitorUiEvent.SetMinBytes(it)) }
                 )
+
                 Spacer(Modifier.height(8.dp))
 
                 val adapter = rememberUiPacketAdapter()
@@ -346,7 +348,66 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                     modifier = Modifier.weight(1f)
                 )
             }
+
+            // DİYALOG + SCRIM
+            if (statDialog != null) {
+                // kapamak için arka plan tıklaması
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.35f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { statDialog = null }
+                )
+
+                Box(
+                    Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 24.dp)
+                ) {
+                    MetricInfoDialog(
+                        kind = statDialog!!,
+                        valueProvider = {
+                            when (statDialog) {
+                                StatKind.Total -> humanBytes(state.totalBytes)
+                                StatKind.Apps  -> state.uniqueApps.toString()
+                                StatKind.Pps   -> String.format(Locale.getDefault(), "%.1f", state.pps)
+                                StatKind.Kbs   -> String.format(Locale.getDefault(), "%.1f", state.throughputKbs)
+                                null -> ""
+                            }
+                        },
+                        onDismiss = { statDialog = null }
+                    )
+                }
+            }
         }
+    }
+
+    // Stop action (bildirim) için receiver
+    DisposableEffect(Unit) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action == ACTION_STOP_ENGINE) {
+                    vm.onEvent(MonitorUiEvent.StopEngine)
+                    context.startService(
+                        Intent(context, DnsSnifferVpnService::class.java)
+                            .setAction(DnsSnifferVpnService.ACTION_STOP)
+                    )
+                    context.stopService(Intent(context, DnsSnifferVpnService::class.java))
+                    NotificationManagerCompat.from(context).cancel(NOTI_ID)
+                }
+            }
+        }
+        val filter = IntentFilter(ACTION_STOP_ENGINE)
+        if (Build.VERSION.SDK_INT >= 33) {
+            ctx.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            ctx.registerReceiver(receiver, filter)
+        }
+        onDispose { runCatching { ctx.unregisterReceiver(receiver) } }
     }
 }
 
@@ -360,7 +421,10 @@ fun LiveDotGhost(
     val pulse by inf.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(1400, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(
+            animation = tween(1400, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
         label = "pulse"
     )
     val p = if (running) pulse else 0f
@@ -382,6 +446,7 @@ private fun TechStatsBar(
     viewMode: ViewMode,
     onViewModeChange: (ViewMode) -> Unit,
     onClearAll: () -> Unit,
+    onChipClick: (StatKind) -> Unit,
 ) {
     var speedExpanded by rememberSaveable { mutableStateOf(false) }
     Column(
@@ -394,10 +459,18 @@ private fun TechStatsBar(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            GlowingStatChip("Total", humanBytes(state.totalBytes), Color(0xFF30E3A2))
-            GlowingStatChip("Apps", state.uniqueApps.toString(), Color(0xFF7BD7FF))
-            GlowingStatChip("PPS", String.format("%.1f", state.pps), Color(0xFFFFA6E7))
-            GlowingStatChip("KB/s", String.format("%.1f", state.throughputKbs), Color(0xFFBCE784))
+            GlowingStatChip("Total", humanBytes(state.totalBytes), Color(0xFF30E3A2)) {
+                onChipClick(StatKind.Total)
+            }
+            GlowingStatChip("Apps", state.uniqueApps.toString(), Color(0xFF7BD7FF)) {
+                onChipClick(StatKind.Apps)
+            }
+            GlowingStatChip("PPS", String.format("%.1f", state.pps), Color(0xFFFFA6E7)) {
+                onChipClick(StatKind.Pps)
+            }
+            GlowingStatChip("KB/s", String.format("%.1f", state.throughputKbs), Color(0xFFBCE784)) {
+                onChipClick(StatKind.Kbs)
+            }
         }
         Spacer(Modifier.height(8.dp))
         LazyRow(
@@ -581,7 +654,13 @@ private fun GhostTonalButton(
                             val y = top
                             val x1 = left + r + s
                             val x2 = left + r + e
-                            drawLine(color = highlightColor, start = Offset(x1, y), end = Offset(x2, y), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            drawLine(
+                                color = highlightColor,
+                                start = Offset(x1, y),
+                                end = Offset(x2, y),
+                                strokeWidth = stroke,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                            )
                         }
                     }
                     cursor += tLen
@@ -782,12 +861,21 @@ private fun GhostPill(
             .clip(shape)
             .clickable { onClick() }
     ) {
-        Text(text = text, color = if (selected) accent else Color(0xFF9EB2C0), modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+        Text(
+            text = text,
+            color = if (selected) accent else Color(0xFF9EB2C0),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
     }
 }
 
 @Composable
-private fun GlowingStatChip(label: String, value: String, accent: Color) {
+private fun GlowingStatChip(
+    label: String,
+    value: String,
+    accent: Color,
+    onClick: (() -> Unit)? = null
+) {
     var idle by remember { mutableStateOf(false) }
     LaunchedEffect(value) { idle = false; delay(2500); idle = true }
     val inf = rememberInfiniteTransition(label = "chipGlow")
@@ -802,12 +890,24 @@ private fun GlowingStatChip(label: String, value: String, accent: Color) {
     val borderStroke = remember(accent) { BorderStroke(1.dp, accent.copy(alpha = 0.15f)) }
     val glowAlpha = if (idle) pulse else 0f
     val blurRadius = if (idle) 18f else 0f
-    Surface(tonalElevation = 3.dp, color = baseSurface, shape = RoundedCornerShape(16.dp), border = borderStroke) {
+    Surface(
+        tonalElevation = 3.dp,
+        color = baseSurface,
+        shape = RoundedCornerShape(16.dp),
+        border = borderStroke,
+        modifier = Modifier.then(
+            if (onClick != null)
+                Modifier.clip(RoundedCornerShape(16.dp)).clickable { onClick() }
+            else Modifier
+        )
+    ) {
         Column(Modifier.padding(12.dp)) {
             Text(label, color = Color(0xFF9EB2C0))
             Text(
                 value,
-                style = MaterialTheme.typography.titleLarge.copy(shadow = Shadow(color = shadowColor.copy(alpha = glowAlpha), offset = Offset.Zero, blurRadius = blurRadius)),
+                style = MaterialTheme.typography.titleLarge.copy(
+                    shadow = Shadow(color = shadowColor.copy(alpha = glowAlpha), offset = Offset.Zero, blurRadius = blurRadius)
+                ),
                 color = accent
             )
         }
@@ -828,9 +928,21 @@ private fun GhostFilterField(
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val glow by animateFloatAsState(targetValue = if (focused) 1f else 0.6f, animationSpec = tween(220, easing = FastOutSlowInEasing), label = "ghostGlow")
-    val borderBrush = Brush.linearGradient(colors = listOf(Color(0xFF233355).copy(alpha = 0.65f * glow), accent.copy(alpha = 0.55f * glow), Color(0xFF233355).copy(alpha = 0.65f * glow)))
+    val borderBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFF233355).copy(alpha = 0.65f * glow),
+            accent.copy(alpha = 0.55f * glow),
+            Color(0xFF233355).copy(alpha = 0.65f * glow)
+        )
+    )
     val baseSurface = Color(0x22101826)
-    Surface(modifier = modifier, shape = shape, tonalElevation = if (focused) 2.dp else 0.dp, color = baseSurface, border = BorderStroke(1.dp, borderBrush)) {
+    Surface(
+        modifier = modifier,
+        shape = shape,
+        tonalElevation = if (focused) 2.dp else 0.dp,
+        color = baseSurface,
+        border = BorderStroke(1.dp, borderBrush)
+    ) {
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
@@ -1073,9 +1185,19 @@ private fun PinnedRowCompact(
 ) {
     val uid = row.raw.uid ?: -1
     val border = remember { Brush.linearGradient(listOf(Color(0xFF314260), Color(0xFF243656), Color(0xFF314260))) }
-    Surface(color = Color(0xFF0F1726), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, border), tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        color = Color(0xFF0F1726),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, border),
+        tonalElevation = 2.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Column(Modifier.weight(1f)) {
                     Text(row.app, color = Color(0xFF7BD7FF), style = MaterialTheme.typography.titleMedium, maxLines = 3, overflow = TextOverflow.Clip)
                     Text("${row.proto} • ${row.bytesLabel}", color = Color(0xFF30E3A2), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Clip)
@@ -1157,7 +1279,12 @@ private fun PacketList(
                             .fillMaxWidth()
                             .padding(top = 8.dp, bottom = 6.dp)
                     ) {
-                        Text("Pinned", color = Color(0xFF9EB2C0), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 4.dp, bottom = 6.dp))
+                        Text(
+                            "Pinned",
+                            color = Color(0xFF9EB2C0),
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(start = 4.dp, bottom = 6.dp)
+                        )
                         pinnedLatest.forEach { r ->
                             PinnedRowCompact(row = r, onUnpin = { uid -> onPin(uid) }, onShareWindowJson = onShareWindowJson)
                             Spacer(Modifier.height(6.dp))
@@ -1197,7 +1324,11 @@ private fun PacketRow(
     val clipboard = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
 
-    val flash by animateFloatAsState(targetValue = if (highlighted) 1f else 0f, animationSpec = tween(300, easing = FastOutSlowInEasing), label = "anomaly-flash")
+    val flash by animateFloatAsState(
+        targetValue = if (highlighted) 1f else 0f,
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "anomaly-flash"
+    )
 
     val fromInit = row.from
     val toInit = row.to
@@ -1235,12 +1366,8 @@ private fun PacketRow(
         (row.raw.localPort in 1..1024) && (row.raw.remotePort !in 1..1024) -> Direction.RX
         else -> Direction.MIX
     }
-    val dirLabel = when (dir) {
-        Direction.TX -> "TX"; Direction.RX -> "RX"; Direction.MIX -> "MIX"
-    }
-    val dirColor = when (dir) {
-        Direction.TX -> Color(0xFFFFB86C); Direction.RX -> Color(0xFF7BD7FF); Direction.MIX -> Color(0xFFBCE784)
-    }
+    val dirLabel = when (dir) { Direction.TX -> "TX"; Direction.RX -> "RX"; Direction.MIX -> "MIX" }
+    val dirColor = when (dir) { Direction.TX -> Color(0xFFFFB86C); Direction.RX -> Color(0xFF7BD7FF); Direction.MIX -> Color(0xFFBCE784) }
 
     val lPort = row.raw.localPort
     val rPort = row.raw.remotePort
@@ -1265,12 +1392,20 @@ private fun PacketRow(
                 drawContent()
                 if (flash > 0f) {
                     val stroke = 2.dp.toPx()
-                    drawRoundRect(color = Color(0xFF30E3A2).copy(alpha = 0.45f * flash), cornerRadius = CornerRadius(12.dp.toPx(), 12.dp.toPx()), style = Stroke(width = stroke))
+                    drawRoundRect(
+                        color = Color(0xFF30E3A2).copy(alpha = 0.45f * flash),
+                        cornerRadius = CornerRadius(12.dp.toPx(), 12.dp.toPx()),
+                        style = Stroke(width = stroke)
+                    )
                 }
             }
     ) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Column(
                     Modifier
                         .weight(1f)
@@ -1539,13 +1674,21 @@ private fun GhostViewModeAnchor(
                 .clip(shape)
                 .clickable { expanded = !expanded }
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
                 Text("▦", color = accent.copy(alpha = 0.9f))
                 Text(if (mode == ViewMode.RAW) "Raw" else "Agg", color = Color(0xFF9EB2C0))
             }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            Surface(color = Color(0xFF0F1726), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Brush.linearGradient(listOf(Color(0xFF1B2B45), Color(0xFF20304F), Color(0xFF1B2B45))))) {
+            Surface(
+                color = Color(0xFF0F1726),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Brush.linearGradient(listOf(Color(0xFF1B2B45), Color(0xFF20304F), Color(0xFF1B2B45))))
+            ) {
                 Column(Modifier.padding(vertical = 6.dp, horizontal = 8.dp)) {
                     Text("View mode", color = Color(0xFF9EB2C0), modifier = Modifier.padding(6.dp))
                     GhostMenuRow(icon = "≋", title = "Raw", subtitle = "Show every packet", selected = mode == ViewMode.RAW) { onChange(ViewMode.RAW); expanded = false }
@@ -1620,11 +1763,7 @@ private fun updateRunningNotification(
         stopIntent,
         PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0
     )
-    val modeText = when (mode) {
-        SpeedMode.ECO -> "Eco"
-        SpeedMode.FAST -> "Fast"
-        SpeedMode.TURBO -> "Turbo"
-    }
+    val modeText = when (mode) { SpeedMode.ECO -> "Eco"; SpeedMode.FAST -> "Fast"; SpeedMode.TURBO -> "Turbo" }
     val content = "Total ${humanBytes(total)} • KB/s %.1f • PPS %.1f • %s".format(Locale.getDefault(), kbs, pps, modeText)
     val notif = NotificationCompat.Builder(ctx, NOTI_CHANNEL_ID)
         .setSmallIcon(R.drawable.stat_notify_sync)
@@ -1639,4 +1778,56 @@ private fun updateRunningNotification(
         .addAction(R.drawable.ic_media_pause, "Stop", stopPi)
         .build()
     nm.notify(NOTI_ID, notif)
+}
+
+// --- Metric Dialog ---
+@Composable
+private fun MetricInfoDialog(
+    kind: StatKind,
+    valueProvider: () -> String,
+    onDismiss: () -> Unit
+) {
+    val title: String
+    val desc: String
+    when (kind) {
+        StatKind.Total -> {
+            title = "Total (All-time)"
+            desc = "The total amount of data observed since the app was opened. It resets when you press 'Clear'."
+        }
+        StatKind.Apps -> {
+            title = "Apps (Unique)"
+            desc = "The number of unique apps producing traffic in the selected window, subject to the filter and minimum-bytes threshold."
+        }
+        StatKind.Pps -> {
+            title = "PPS (Packets per Second)"
+            desc = "The instantaneous average: total packet count in the selected time window divided by the window duration."
+        }
+        StatKind.Kbs -> {
+            title = "KB/s (Throughput)"
+            desc = "The total bytes within the selected window normalized per second; shows the instantaneous transfer rate in KB/s."
+        }
+    }
+
+    Surface(
+        color = Color(0xF0141C2A),
+        contentColor = Color(0xFFDBEAFE),
+        shape = RoundedCornerShape(24.dp),
+        tonalElevation = 8.dp,
+        border = BorderStroke(1.dp, Brush.linearGradient(listOf(Color(0xFF233355), Color(0xFF3A4D77), Color(0xFF233355)))),
+        modifier = Modifier
+            .fillMaxWidth()
+            .wrapContentHeight()
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, style = MaterialTheme.typography.titleLarge, color = Color(0xFF7BD7FF))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Current:", color = Color(0xFF9EB2C0))
+                Text(valueProvider(), color = Color(0xFF30E3A2), style = MaterialTheme.typography.titleMedium)
+            }
+            Text(desc, color = Color(0xFFB8C8D8))
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        }
+    }
 }

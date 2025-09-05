@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -65,13 +66,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_21.toString()
+        compileOptions.sourceCompatibility = JavaVersion.VERSION_21
     }
     kotlin {
         jvmToolchain(21)
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -87,6 +89,9 @@ dependencies {
     implementation(libs.koin.android)
     implementation(libs.koin.androidx.workmanager)
     implementation(libs.androidx.work.runtime.ktx)
+
+    // Nav
+    implementation(libs.bundles.navigation)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

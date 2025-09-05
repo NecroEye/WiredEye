@@ -46,7 +46,13 @@ dependencies {
 
     // Koin
     implementation(libs.koin.android)
-    implementation("io.insert-koin:koin-androidx-compose:4.1.0")
+    implementation(libs.koin.androidx.compose)
+
+    //Nav
+    implementation(libs.bundles.navigation)
+
+    //Haze
+    implementation(libs.haze)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)

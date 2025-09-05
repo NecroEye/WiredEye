@@ -34,7 +34,7 @@ class MonitorViewModel(
     private val windowMillis = MutableStateFlow(10_000L)
     private val clearAfter = MutableStateFlow(0L)
     private val speedMode = MutableStateFlow(SpeedMode.FAST)
-    private val viewMode = MutableStateFlow(ViewMode.RAW)
+    private val viewMode = MutableStateFlow( ViewMode.RAW)
     private val engineState: StateFlow<EngineState> = engine.state
     private val totalAllTime = MutableStateFlow(0L)
     private val pinnedUids = MutableStateFlow<Set<Int>>(emptySet())
@@ -130,7 +130,6 @@ class MonitorViewModel(
                         .filter { it.bytes >= inp.c.minB && it.timestamp >= inp.c.clearAfter && matchesFilter(it, inp.c.terms) }
                         .filter { it.uid == null || !inp.mutes.contains(it.uid!!) }
                         .toList()
-
                     val ui: List<UiPacket> = when (mode) {
                         ViewMode.RAW -> filtered.asReversed().map { it.toUiPacket() }
                         ViewMode.AGGREGATED -> aggregateToUi(filtered)

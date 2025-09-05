@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -25,9 +26,9 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_21.toString()
+        compileOptions.sourceCompatibility = JavaVersion.VERSION_21
     }
-    kotlin{
+    kotlin {
         jvmToolchain(21)
     }
 }
@@ -35,6 +36,7 @@ android {
 dependencies {
 
     implementation(libs.koin.android)
+    implementation(libs.bundles.navigation)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

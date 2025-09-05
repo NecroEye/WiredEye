@@ -1,6 +1,6 @@
 [versions]
 # Android Gradle & Kotlin
-agp = "8.12.2"
+agp = "8.13.0"
 kotlin = "2.2.10"
 parcelizePlugin = "2.2.10"
 ksp = "2.2.10-2.0.2"
@@ -8,7 +8,10 @@ ksp = "2.2.10-2.0.2"
 # AndroidX core & app compat
 coreKtx = "1.17.0"
 appcompat = "1.7.1"
-material = "1.12.0"
+material = "1.13.0"
+
+# Coil
+coilComposeVersion = "2.7.0"
 
 # Compose
 activityCompose = "1.10.1"
@@ -27,12 +30,13 @@ room = "2.7.2"
 
 # Serialization / Coroutines
 kotlinxSerialization = "1.9.0"
+kotlinxSerializationCore = "1.9.0"
 coroutines = "1.10.2"
 
 # Networking stack
 okio = "3.16.0"
 okhttp = "5.1.0"
-retrofit = "3.0.0" # (Ensure this is correct for your chosen Retrofit artifact.)
+retrofit = "3.0.0"
 
 # Moshi
 moshi = "1.15.2"
@@ -42,12 +46,20 @@ datastore = "1.1.7"
 security = "1.1.0"
 
 # DI
-koin = "4.1.0"
+koin = "4.1.1"
+
+# Nav
+navigation = "2.9.3"
+nav3Core = "1.0.0-alpha08"
+lifecycleViewmodelNav3 = "1.0.0-alpha04"
+
+# Haze
+hazeVersion = "1.6.10"
 
 # ---- Advanced crypto / parsing / capture ----
 bouncycastle = "1.81"
 protobuf = "4.32.0"
-wire = "5.3.11"
+wire = "5.4.0"
 jackson = "2.20.0"
 pcap4j = "1.8.2"
 
@@ -97,16 +109,28 @@ koin-androidx-compose = { group = "io.insert-koin", name = "koin-androidx-compos
 # WorkManager
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntime" }
 
+# Haze
+haze = { module = "dev.chrisbanes.haze:haze", version.ref = "hazeVersion" }
+
 # Room
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 
-# Kotlinx Serialization
+# Kotlinx Serialization & Core Navigation 3
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinxSerializationCore" }
+navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation" }
+androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "nav3Core" }
+androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "nav3Core" }
+androidx-lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycleViewmodelNav3" }
 
 # Coroutines
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+
+# Coil
+coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coilComposeVersion" }
+coil-gif = { module = "io.coil-kt:coil-gif", version.ref = "coilComposeVersion" }
 
 # Okio / OkHttp
 okio = { group = "com.squareup.okio", name = "okio", version.ref = "okio" }
@@ -131,7 +155,7 @@ androidx-datastore = { group = "androidx.datastore", name = "datastore", version
 androidx-datastore-core-okio = { group = "androidx.datastore", name = "datastore-core-okio", version.ref = "datastore" }
 androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "security" }
 
-# ---- Advanced decryption / parsing / capture ----
+# ---- Advanced decryption / parsing / capture ---- #
 # BouncyCastle
 bouncycastle-bcprov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
 bouncycastle-bcpkix = { group = "org.bouncycastle", name = "bcpkix-jdk18on", version.ref = "bouncycastle" }
@@ -205,4 +229,10 @@ advancedDecryption = [
 advancedNetworkAnalysis = [
   "pcap4j-core",
   "pcap4j-packetfactory-static",
+]
+navigation = [
+  "navigation-compose",
+  "androidx-navigation3-ui",
+  "androidx-lifecycle-viewmodel-navigation3",
+  "androidx-navigation3-runtime",
 ]

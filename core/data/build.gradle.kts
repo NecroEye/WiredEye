@@ -26,7 +26,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_21.toString()
+        compileOptions.sourceCompatibility = JavaVersion.VERSION_21
         freeCompilerArgs = listOf("-XXLanguage:+PropertyParamAnnotationDefaultTargetMode")
     }
     kotlin{
