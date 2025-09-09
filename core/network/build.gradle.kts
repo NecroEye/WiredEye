@@ -35,6 +35,7 @@ android {
 dependencies {
 
     implementation(project(":core:data"))
+    implementation(project(":core:nativelib"))
     implementation(project(":core:common"))
 
     // --- Serialization & Okio ---

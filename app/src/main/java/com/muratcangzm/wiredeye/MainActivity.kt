@@ -9,7 +9,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
-import com.muratcangzm.core.NativeBridge
 import com.muratcangzm.wiredeye.nav.NavigationRoot
 import com.muratcangzm.wiredeye.ui.theme.WiredEyeTheme
 
@@ -23,8 +22,6 @@ class MainActivity : ComponentActivity() {
                 val navController: NavHostController = rememberNavController()
                 NavigationRoot(modifier = Modifier, navController = navController)
             }
-            val sum = NativeBridge.add(2,3)
-            Log.d("WireLog", "onCreate: JNI added result: $sum ")
         }
     }
 }

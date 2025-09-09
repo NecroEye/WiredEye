@@ -1,6 +1,8 @@
+// core/network/src/main/java/com/muratcangzm/network/vpn/DnsSnifferVpnService.kt
 package com.muratcangzm.network.vpn
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
@@ -8,6 +10,7 @@ import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.annotation.RequiresPermission
+import com.muratcangzm.core.NativeTun
 import com.muratcangzm.data.model.meta.DnsMeta
 import com.muratcangzm.data.model.meta.PacketMeta
 import com.muratcangzm.data.repo.packetRepo.PacketRepository
@@ -18,50 +21,56 @@ import com.muratcangzm.network.common.uidCache
 import com.muratcangzm.network.engine.PacketEventBus
 import kotlinx.coroutines.*
 import org.koin.android.ext.android.inject
-import org.koin.core.component.KoinComponent
-import java.io.FileInputStream
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-class DnsSnifferVpnService : VpnService(), KoinComponent {
+@SuppressLint("VpnServicePolicy")
+class DnsSnifferVpnService : VpnService(), NativeTun.Listener {
 
     private val repo: PacketRepository by inject()
     private val bus: PacketEventBus by inject()
 
     private var tun: ParcelFileDescriptor? = null
-    private var job: Job? = null
+    private var nativeRunning = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> {
-                stopSelf()
-                stopVpn()
-                return START_NOT_STICKY
-            }
-        }
-        if (tun != null && job?.isActive == true) return START_STICKY
+        if (intent?.action == ACTION_STOP) { stopSelf(); stopVpn(); return START_NOT_STICKY }
+        if (tun != null && nativeRunning) return START_STICKY
 
-        // ---- VPN Builder
         val builder = Builder()
             .setSession(SESSION_NAME)
-            .setMtu(1500)
+            .setMtu(MTU)
             .addAddress("10.88.0.2", 32)
             .addAddress("fd00:88::2", 128)
             .addRoute("0.0.0.0", 0)
             .addRoute("::", 0)
             .also { runCatching { it.addDisallowedApplication(packageName) } }
 
+        // (opsiyonel) aktif DNS’leri ekle
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val dnsServers = cm.getLinkProperties(cm.activeNetwork)?.dnsServers.orEmpty()
-        dnsServers.forEach { builder.addDnsServer(it.hostAddress) }
+        cm.getLinkProperties(cm.activeNetwork)?.dnsServers.orEmpty()
+            .forEach { it.hostAddress?.let(builder::addDnsServer) }
 
+        // 1) TUN’u kur
         tun = builder.establish() ?: run { stopSelf(); return START_NOT_STICKY }
 
-        // Foreground/notification YOK — yalnızca okuma döngüsünü başlat.
-        job = scope.launch { readLoop(tun!!) }
+        // 2) Native katmanı başlat — tam buraya!
+        NativeTun.setListener(this)
+        val fd = tun!!.detachFd()
+        nativeRunning = NativeTun.start(
+            fd,
+            MTU,
+            64,             // maxBatch
+            128 * 1024,     // maxBatchBytes
+            8,              // flushTimeoutMs
+            25              // readTimeoutMs
+        )
+        if (!nativeRunning) { stopSelf(); return START_NOT_STICKY }
+
         return START_STICKY
     }
 
@@ -69,157 +78,119 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
         stopSelf()
     }
 
-    private fun emitMeta(meta: PacketMeta) {
-        Log.d("WireLog", "emitMeta -> ${meta.protocol} ${meta.bytes}")
-        bus.tryEmit(meta)
-        scope.launch { repo.recordPacketMeta(meta) }
-    }
-
     override fun onDestroy() {
-        runBlocking { job?.cancelAndJoin() }
-        tun?.close()
+        stopVpn()
         super.onDestroy()
     }
 
-    // --------------------------------------------------------------------
+    private fun stopVpn() {
+        runCatching { if (nativeRunning) NativeTun.stop() }
+        nativeRunning = false
+        NativeTun.setListener(null)
+        runCatching { tun?.close() }
+        tun = null
+    }
 
-    private suspend fun readLoop(pfd: ParcelFileDescriptor) {
-        val input = FileInputStream(pfd.fileDescriptor)
-        val buf = ByteArray(BUFFER_SIZE)
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    // ---------------- NativeTun.Listener ----------------
 
+    override fun onNativeBatch(buf: ByteArray, validBytes: Int, packetCount: Int) {
         try {
-            while (currentCoroutineContext().isActive) {
-                val n = input.read(buf)
-                if (n <= 0) continue
-
-                val ipBuf = ByteBuffer.wrap(buf, 0, n).order(ByteOrder.BIG_ENDIAN)
-
-                val first = ipBuf.get(0).toInt() and 0xFF
-                Log.d("AppLog", "pkt n=$n first=0x${first.toString(16)}")
-
-                when (val ip = IpPacket.parse(ipBuf)) {
-                    is IpPacket.Ipv4 -> when (ip.protocol) {
-                        17 -> handleUdpV4(cm, ip)
-                        6 -> handleTcpV4(cm, ip)
-                    }
-
-                    is IpPacket.Ipv6 -> when (ip.nextHeader) {
-                        17 -> handleUdpV6(cm, ip)
-                        6 -> handleTcpV6(cm, ip)
-                    }
-
-                    else -> Unit
+            if (packetCount <= 0) {
+                parseSingle(ByteBuffer.wrap(buf, 0, validBytes).order(ByteOrder.BIG_ENDIAN))
+            } else {
+                var off = 0
+                var left = validBytes
+                repeat(packetCount) {
+                    if (left < 2) return
+                    val len =
+                        ((buf[off].toInt() and 0xFF) shl 8) or (buf[off + 1].toInt() and 0xFF)
+                    off += 2; left -= 2
+                    if (len <= 0 || len > left) return
+                    parseSingle(ByteBuffer.wrap(buf, off, len).order(ByteOrder.BIG_ENDIAN))
+                    off += len; left -= len
                 }
             }
         } catch (t: Throwable) {
-            Log.e("AppLog", "readLoop error", t)
-            stopSelf()
+            Log.e(TAG, "onNativeBatch parse error", t)
         }
     }
 
-    /* ---------------- UDP/TCP handlers ---------------- */
+    private fun parseSingle(bb: ByteBuffer) {
+        when (val ip = IpPacket.parse(bb)) {
+            is IpPacket.Ipv4 -> when (ip.protocol) {
+                17 -> handleUdp(ip.src, ip.dst, ip.payload, isV6 = false)
+                6  -> handleTcp(ip.src, ip.dst, ip.payload, isV6 = false)
+                else -> Unit
+            }
+            is IpPacket.Ipv6 -> when (ip.nextHeader) {
+                17 -> handleUdp(ip.src, ip.dst, ip.payload, isV6 = true)
+                6  -> handleTcp(ip.src, ip.dst, ip.payload, isV6 = true)
+                else -> Unit
+            }
+            else -> Unit
+        }
+    }
 
-    private fun handleUdpV4(cm: ConnectivityManager, ip: IpPacket.Ipv4) {
-        val udp = UdpHeader.parse(ip.payload) ?: return
-        Log.d("AppLog", "UDP4 ${ip.src.hostAddress}:${udp.srcPort} -> ${ip.dst.hostAddress}:${udp.dstPort} len=${udp.length}")
+    // ---------------- UDP/TCP ----------------
+
+    private fun handleUdp(src: InetAddress, dst: InetAddress, payload: ByteBuffer, isV6: Boolean) {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val udp = UdpHeader.parse(payload) ?: return
         if (udp.dstPort == 53 || udp.srcPort == 53) {
-            recordDns(ip.src.hostAddress, ip.dst.hostAddress, udp.payload)
+            recordDns(src.hostAddress, dst.hostAddress, udp.payload)
         }
         val uid = tryResolveUid(
             cm, 17,
-            InetSocketAddress(ip.src, udp.srcPort),
-            InetSocketAddress(ip.dst, udp.dstPort)
+            InetSocketAddress(src, udp.srcPort),
+            InetSocketAddress(dst, udp.dstPort)
         )
         emitMeta(
             PacketMeta(
                 timestamp = System.currentTimeMillis(),
                 uid = uid,
                 packageName = null,
-                protocol = "UDP",
-                localAddress = ip.src.hostAddress,
+                protocol = if (isV6) "UDP6" else "UDP",
+                localAddress = src.hostAddress,
                 localPort = udp.srcPort,
-                remoteAddress = ip.dst.hostAddress,
+                remoteAddress = dst.hostAddress,
                 remotePort = udp.dstPort,
                 bytes = udp.length.toLong()
             )
         )
     }
 
-    private fun handleTcpV4(cm: ConnectivityManager, ip: IpPacket.Ipv4) {
-        val tcp = TcpHeader.parse(ip.payload) ?: return
+    private fun handleTcp(src: InetAddress, dst: InetAddress, payload: ByteBuffer, isV6: Boolean) {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val tcp = TcpHeader.parse(payload) ?: return
         val uid = tryResolveUid(
             cm, 6,
-            InetSocketAddress(ip.src, tcp.srcPort),
-            InetSocketAddress(ip.dst, tcp.dstPort)
+            InetSocketAddress(src, tcp.srcPort),
+            InetSocketAddress(dst, tcp.dstPort)
         )
         emitMeta(
             PacketMeta(
                 timestamp = System.currentTimeMillis(),
                 uid = uid,
                 packageName = null,
-                protocol = "TCP",
-                localAddress = ip.src.hostAddress,
+                protocol = if (isV6) "TCP6" else "TCP",
+                localAddress = src.hostAddress,
                 localPort = tcp.srcPort,
-                remoteAddress = ip.dst.hostAddress,
+                remoteAddress = dst.hostAddress,
                 remotePort = tcp.dstPort,
-                bytes = (tcp.headerLen + tcp.payload.remaining()).toLong()
+                bytes = (tcp.headerLen + tcp.payload.remaining()).toLong() // <-- düzeltildi
             )
         )
     }
 
-    private fun handleUdpV6(cm: ConnectivityManager, ip: IpPacket.Ipv6) {
-        val udp = UdpHeader.parse(ip.payload) ?: return
-        if (udp.dstPort == 53 || udp.srcPort == 53) {
-            recordDns(ip.src.hostAddress, ip.dst.hostAddress, udp.payload)
-        }
-        val uid = tryResolveUid(
-            cm, 17,
-            InetSocketAddress(ip.src, udp.srcPort),
-            InetSocketAddress(ip.dst, udp.dstPort)
-        )
-        emitMeta(
-            PacketMeta(
-                timestamp = System.currentTimeMillis(),
-                uid = uid,
-                packageName = null,
-                protocol = "UDP6",
-                localAddress = ip.src.hostAddress,
-                localPort = udp.srcPort,
-                remoteAddress = ip.dst.hostAddress,
-                remotePort = udp.dstPort,
-                bytes = udp.length.toLong()
-            )
-        )
-    }
+    // ---------------- DNS ----------------
 
-    private fun handleTcpV6(cm: ConnectivityManager, ip: IpPacket.Ipv6) {
-        val tcp = TcpHeader.parse(ip.payload) ?: return
-        val uid = tryResolveUid(
-            cm, 6,
-            InetSocketAddress(ip.src, tcp.srcPort),
-            InetSocketAddress(ip.dst, tcp.dstPort)
-        )
-        emitMeta(
-            PacketMeta(
-                timestamp = System.currentTimeMillis(),
-                uid = uid,
-                packageName = null,
-                protocol = "TCP6",
-                localAddress = ip.src.hostAddress,
-                localPort = tcp.srcPort,
-                remoteAddress = ip.dst.hostAddress,
-                remotePort = tcp.dstPort,
-                bytes = (tcp.headerLen + tcp.payload.remaining()).toLong()
-            )
-        )
-    }
-
-    /* ---------------- DNS ---------------- */
-
-    private fun recordDns(srcIp: String, dstIp: String, payload: ByteBuffer) {
-        val dns = DnsMessage.tryParse(payload.duplicate().order(ByteOrder.BIG_ENDIAN)) ?: return
-        val q = dns.questions.firstOrNull() ?: return
+    private fun recordDns(
+        @Suppress("UNUSED_PARAMETER") srcIp: String,
+        dstIp: String,
+        payload: ByteBuffer
+    ) {
+        val msg = DnsMessage.tryParse(payload.duplicate().order(ByteOrder.BIG_ENDIAN)) ?: return
+        val q = msg.questions.firstOrNull() ?: return
         val event = DnsMeta(
             timestamp = System.currentTimeMillis(),
             uid = null,
@@ -231,13 +202,11 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
         scope.launch { runCatching { repo.recordDnsEvent(event) } }
     }
 
-    /* ---------------- helpers ---------------- */
+    // ---------------- helpers ----------------
 
-    private fun stopVpn() {
-        runCatching { job?.cancel() }
-        job = null
-        runCatching { tun?.close() }
-        tun = null
+    private fun emitMeta(meta: PacketMeta) {
+        bus.tryEmit(meta)
+        scope.launch { repo.recordPacketMeta(meta) }
     }
 
     private fun tryResolveUid(
@@ -252,36 +221,32 @@ class DnsSnifferVpnService : VpnService(), KoinComponent {
             local.address.hostAddress.orEmpty(), local.port,
             remote.address.hostAddress.orEmpty(), remote.port,
         ).norm()
-
         uidCache.get(key)?.let { if (it.expireAt > now) return it.uid }
 
-        // normal yön
         val u1 = runCatching { cm.getConnectionOwnerUid(proto, local, remote) }.getOrNull()
         val uid = when {
             (u1 ?: -1) > 0 -> u1
             else -> {
-                val u2 = runCatching { cm.getConnectionOwnerUid(proto, remote, local) }.getOrNull()
+                val u2 =
+                    runCatching { cm.getConnectionOwnerUid(proto, remote, local) }.getOrNull()
                 if ((u2 ?: -1) > 0) u2 else null
             }
         }
-
         uidCache.put(key, UidEntry(uid, now + UID_TTL_MS))
         return uid
     }
 
     companion object {
         const val ACTION_START = "com.muratcangzm.monitor.VPN_START"
-        const val ACTION_STOP = "com.muratcangzm.monitor.VPN_STOP"
-        const val ACTION_EVENT = "com.muratcangzm.monitor.VPN_EVENT"
-        const val EXTRA_JSON = "json"
-
+        const val ACTION_STOP  = "com.muratcangzm.monitor.VPN_STOP"
         private const val SESSION_NAME = "MetaNet VPN Sniffer"
+        private const val MTU = 1500
+        private const val TAG = "NativeTun"
         private const val BUFFER_SIZE = 65535
     }
 }
 
-/* ===================== TCP parser ===================== */
-
+/* ===================== TCP parser (private, tek dosyada) ===================== */
 private data class TcpHeader(
     val srcPort: Int,
     val dstPort: Int,
