@@ -82,6 +82,7 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:ai"))
     implementation(project(":core:data"))
+    implementation(project(":core:nativelib"))
     implementation(project(":core:network"))
     implementation(project(":feature:monitor"))
 

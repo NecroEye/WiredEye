@@ -13,17 +13,14 @@
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"
         tools:ignore="ForegroundServicesPolicy" />
-    <!-- Android 14+ özel kullanım (VPN) alt türü için -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"
         tools:targetApi="34" />
 
-    <!-- Paket görünürlüğü gerçekten gerekiyorsa kalsın; Play politikalarını etkiler -->
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="PackageVisibilityPolicy,QueryAllPackagesPermission" />
 
-    <!-- Usage stats (ayar ekranından kullanıcı onayı gerektirir) -->
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />

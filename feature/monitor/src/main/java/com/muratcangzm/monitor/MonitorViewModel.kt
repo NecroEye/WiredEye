@@ -86,7 +86,7 @@ class MonitorViewModel(
     private fun tokenize(q: String): List<String> =
         q.lowercase(Locale.getDefault())
             .split(' ', '\t')
-            .mapNotNull { t -> val s = t.trim(); if (s.isNotEmpty()) s else null }
+            .mapNotNull { t -> val s = t.trim(); s.ifEmpty { null } }
 
     private val controls: StateFlow<Controls> =
         combine(windowMillis, filterText, minBytes, clearAfter) { win, filter, minB, clearTs ->
