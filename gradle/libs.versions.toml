@@ -1,9 +1,9 @@
 [versions]
 # Android Gradle & Kotlin
 agp = "8.13.0"
-kotlin = "2.2.10"
-parcelizePlugin = "2.2.10"
-ksp = "2.2.10-2.0.2"
+kotlin = "2.2.20"
+parcelizePlugin = "2.2.20"
+ksp = "2.2.20-2.0.3"
 
 # AndroidX core & app compat
 coreKtx = "1.17.0"
@@ -14,10 +14,10 @@ material = "1.13.0"
 coilComposeVersion = "2.7.0"
 
 # Compose
-activityCompose = "1.10.1"
-composeBom = "2025.08.01"
-lifecycleRuntimeKtx = "2.9.3"
-lifecycleRuntimeCompose = "2.9.3"
+activityCompose = "1.11.0"
+composeBom = "2025.10.00"
+lifecycleRuntimeKtx = "2.9.4"
+lifecycleRuntimeCompose = "2.9.4"
 
 # Test
 junit = "4.13.2"
@@ -25,8 +25,8 @@ junitVersion = "1.3.0"
 espressoCore = "3.7.0"
 
 # WorkManager & Room
-workRuntime = "2.10.3"
-room = "2.7.2"
+workRuntime = "2.10.5"
+room = "2.8.2"
 
 # Serialization / Coroutines
 kotlinxSerialization = "1.9.0"
@@ -34,8 +34,8 @@ kotlinxSerializationCore = "1.9.0"
 coroutines = "1.10.2"
 
 # Networking stack
-okio = "3.16.0"
-okhttp = "5.1.0"
+okio = "3.16.2"
+okhttp = "5.2.1"
 retrofit = "3.0.0"
 
 # Moshi
@@ -49,16 +49,16 @@ security = "1.1.0"
 koin = "4.1.1"
 
 # Nav
-navigation = "2.9.3"
-nav3Core = "1.0.0-alpha08"
+navigation = "2.9.5"
+nav3Core = "1.0.0-alpha11"
 lifecycleViewmodelNav3 = "1.0.0-alpha04"
 
 # Haze
 hazeVersion = "1.6.10"
 
 # ---- Advanced crypto / parsing / capture ----
-bouncycastle = "1.81"
-protobuf = "4.32.0"
+bouncycastle = "1.82"
+protobuf = "4.33.0"
 wire = "5.4.0"
 jackson = "2.20.0"
 pcap4j = "1.8.2"
@@ -66,6 +66,9 @@ pcap4j = "1.8.2"
 # NDK
 ndk = "28.1.13356709"
 cmake = "3.31.5"
+
+# Desugar
+desugarJdkLibs = "2.1.3"
 
 
 # =================
@@ -181,6 +184,9 @@ jackson-module-kotlin = { group = "com.fasterxml.jackson.module", name = "jackso
 # pcap4j
 pcap4j-core = { group = "org.pcap4j", name = "pcap4j-core", version.ref = "pcap4j" }
 pcap4j-packetfactory-static = { group = "org.pcap4j", name = "pcap4j-packetfactory-static", version.ref = "pcap4j" }
+
+# Desugar
+desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 
 
 # =================

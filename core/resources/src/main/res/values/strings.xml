@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App -->
+    <string name="app_name">WiredEye</string>
+    <string name="title_realtime_metadata">WiredEye — Realtime Metadata</string>
+
+    <!-- Permissions / snackbars -->
+    <string name="vpn_denied">VPN permission denied</string>
+    <string name="network_changed_snackbar">Network: %1$s — metrics reset</string>
+    <string name="copied_snackbar">%1$s copied</string>
+    <string name="sharing_failed">Sharing failed</string>
+
+    <!-- Top bar / actions -->
+    <string name="action_start">Start</string>
+    <string name="action_stop">Stop</string>
+
+    <!-- Stats chips -->
+    <string name="chip_total">Total</string>
+    <string name="chip_apps">Apps</string>
+    <string name="chip_pps">PPS</string>
+    <string name="chip_kbs">KB/s</string>
+
+    <!-- Tech bar -->
+    <string name="label_window">Window:</string>
+    <string name="window_5s">5s</string>
+    <string name="window_10s">10s</string>
+    <string name="window_30s">30s</string>
+    <string name="speed_eco">Eco</string>
+    <string name="speed_fast">Fast</string>
+    <string name="speed_turbo">Turbo</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_locked">🔒</string>
+
+    <!-- Filter -->
+    <string name="filter_label">Filter (app/ip/port/protocol)</string>
+    <string name="action_clear_text">Clear</string>
+    <string name="min_bytes">Min bytes:</string>
+
+    <!-- Pinned / list -->
+    <string name="section_pinned">Pinned</string>
+    <string name="action_share">Share</string>
+    <string name="action_unpin">Unpin</string>
+    <string name="empty_title">No packets yet</string>
+    <string name="empty_hint_idle">Tap Start to begin capture</string>
+    <string name="empty_hint_running">Listening for packets…</string>
+    <string name="action_pin">Pin</string>
+    <string name="action_share_json">Share JSON</string>
+    <string name="uid_fmt">uid:%1$d</string>
+
+    <!-- Endpoints / chips -->
+    <string name="from_label">from</string>
+    <string name="to_label">to</string>
+    <string name="tag_lan">LAN</string>
+    <string name="tag_local">LOCAL</string>
+    <string name="tag_internet">INTERNET</string>
+
+    <!-- View mode menu -->
+    <string name="view_mode_menu_title">View mode</string>
+    <string name="view_mode_raw_short">Raw</string>
+    <string name="view_mode_agg_short">Agg</string>
+    <string name="view_mode_raw_title">Raw</string>
+    <string name="view_mode_raw_subtitle">Show every packet</string>
+    <string name="view_mode_agg_title">Aggregated</string>
+    <string name="view_mode_agg_subtitle">Group by app/host</string>
+
+    <!-- Notification -->
+    <string name="notif_channel_name">WiredEye Capture</string>
+    <string name="notif_running_title">WiredEye capture running</string>
+    <string name="notif_stop">Stop</string>
+    <!-- All positional: %1$s total, %2$.1f kbs, %3$.1f pps, %4$s mode -->
+    <string name="notif_content">Total %1$s • KB/s %2$.1f • PPS %3$.1f • %4$s</string>
+
+    <!-- Metric dialog -->
+    <string name="metric_total_title">Total (All-time)</string>
+    <string name="metric_total_desc">The total amount of data observed since the app was opened. It resets when you press \'Clear\'.</string>
+    <string name="metric_apps_title">Apps (Unique)</string>
+    <string name="metric_apps_desc">The number of unique apps producing traffic in the selected window, subject to the filter and minimum-bytes threshold.</string>
+    <string name="metric_pps_title">PPS (Packets per Second)</string>
+    <string name="metric_pps_desc">The instantaneous average: total packet count in the selected time window divided by the window duration.</string>
+    <string name="metric_kbs_title">KB/s (Throughput)</string>
+    <string name="metric_kbs_desc">The total bytes within the selected window normalized per second; shows the instantaneous transfer rate in KB/s.</string>
+    <string name="current_label">Current:</string>
+    <string name="close">Close</string>
+</resources>

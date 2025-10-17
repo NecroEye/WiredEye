@@ -50,15 +50,12 @@ class DnsSnifferVpnService : VpnService(), NativeTun.Listener {
             .addRoute("::", 0)
             .also { runCatching { it.addDisallowedApplication(packageName) } }
 
-        // (opsiyonel) aktif DNS’leri ekle
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         cm.getLinkProperties(cm.activeNetwork)?.dnsServers.orEmpty()
             .forEach { it.hostAddress?.let(builder::addDnsServer) }
 
-        // 1) TUN’u kur
         tun = builder.establish() ?: run { stopSelf(); return START_NOT_STICKY }
 
-        // 2) Native katmanı başlat — tam buraya!
         NativeTun.setListener(this)
         val fd = tun!!.detachFd()
         nativeRunning = NativeTun.start(
@@ -177,7 +174,7 @@ class DnsSnifferVpnService : VpnService(), NativeTun.Listener {
                 localPort = tcp.srcPort,
                 remoteAddress = dst.hostAddress,
                 remotePort = tcp.dstPort,
-                bytes = (tcp.headerLen + tcp.payload.remaining()).toLong() // <-- düzeltildi
+                bytes = (tcp.headerLen + tcp.payload.remaining()).toLong()
             )
         )
     }

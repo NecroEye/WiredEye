@@ -20,6 +20,15 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = false
+        }
+    }
+
     packaging {
         resources {
             excludes += setOf(
@@ -44,10 +53,19 @@ android {
             isMinifyEnabled = false
             isShrinkResources = false
             isDebuggable = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            applicationIdSuffix = ".dev"
+        }
+    }
+
+    flavorDimensions.add("env")
+
+    productFlavors {
+        create("oss") {
+            dimension = "env"
+            applicationIdSuffix = ".oss"
+        }
+        create("play") {
+            dimension = "env"
         }
     }
 
@@ -64,6 +82,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions {
         compileOptions.sourceCompatibility = JavaVersion.VERSION_21
@@ -109,5 +128,5 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 }
-

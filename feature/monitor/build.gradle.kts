@@ -33,7 +33,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_21.toString()
+        compileOptions.sourceCompatibility = JavaVersion.VERSION_21
     }
     kotlin {
         jvmToolchain(21)
@@ -43,6 +43,7 @@ android {
 dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:network"))
+    implementation(project(":core:resources"))
 
     // Koin
     implementation(libs.koin.android)
