@@ -1,11 +1,12 @@
 package com.muratcangzm.monitor.ui.adapters
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import com.muratcangzm.monitor.common.UiPacket
 import kotlin.math.max
-
+@Immutable
 data class UiPacketItem(val id: String, val model: UiPacket, val contentHash: Int)
 
 class UiPacketAdapter {

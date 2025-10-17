@@ -1,4 +1,3 @@
-// core/network/src/main/java/com/muratcangzm/network/vpn/DnsSnifferVpnService.kt
 package com.muratcangzm.network.vpn
 
 import android.Manifest
@@ -19,7 +18,10 @@ import com.muratcangzm.network.common.UID_TTL_MS
 import com.muratcangzm.network.common.UidEntry
 import com.muratcangzm.network.common.uidCache
 import com.muratcangzm.network.engine.PacketEventBus
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -29,44 +31,26 @@ import java.nio.ByteOrder
 @SuppressLint("VpnServicePolicy")
 class DnsSnifferVpnService : VpnService(), NativeTun.Listener {
 
-    private val repo: PacketRepository by inject()
-    private val bus: PacketEventBus by inject()
+    private val packetRepository: PacketRepository by inject()
+    private val eventBus: PacketEventBus by inject()
 
-    private var tun: ParcelFileDescriptor? = null
-    private var nativeRunning = false
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var tunInterface: ParcelFileDescriptor? = null
+    private var nativeLayerRunning = false
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) { stopSelf(); stopVpn(); return START_NOT_STICKY }
-        if (tun != null && nativeRunning) return START_STICKY
+        if (intent?.action == ACTION_STOP) {
+            stopSelf()
+            stopTun()
+            return START_NOT_STICKY
+        }
+        if (tunInterface != null && nativeLayerRunning) return START_STICKY
 
-        val builder = Builder()
-            .setSession(SESSION_NAME)
-            .setMtu(MTU)
-            .addAddress("10.88.0.2", 32)
-            .addAddress("fd00:88::2", 128)
-            .addRoute("0.0.0.0", 0)
-            .addRoute("::", 0)
-            .also { runCatching { it.addDisallowedApplication(packageName) } }
-
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        cm.getLinkProperties(cm.activeNetwork)?.dnsServers.orEmpty()
-            .forEach { it.hostAddress?.let(builder::addDnsServer) }
-
-        tun = builder.establish() ?: run { stopSelf(); return START_NOT_STICKY }
-
-        NativeTun.setListener(this)
-        val fd = tun!!.detachFd()
-        nativeRunning = NativeTun.start(
-            fd,
-            MTU,
-            64,             // maxBatch
-            128 * 1024,     // maxBatchBytes
-            8,              // flushTimeoutMs
-            25              // readTimeoutMs
-        )
-        if (!nativeRunning) { stopSelf(); return START_NOT_STICKY }
+        val builder = createBuilder()
+        addSystemDnsServers(builder)
+        if (!establishTun(builder)) return START_NOT_STICKY
+        if (!startNativeLayer()) return START_NOT_STICKY
 
         return START_STICKY
     }
@@ -76,174 +60,207 @@ class DnsSnifferVpnService : VpnService(), NativeTun.Listener {
     }
 
     override fun onDestroy() {
-        stopVpn()
+        stopTun()
         super.onDestroy()
     }
 
-    private fun stopVpn() {
-        runCatching { if (nativeRunning) NativeTun.stop() }
-        nativeRunning = false
-        NativeTun.setListener(null)
-        runCatching { tun?.close() }
-        tun = null
+    private fun createBuilder(): Builder =
+        Builder()
+            .setSession(sessionName)
+            .setMtu(defaultMtu)
+            .addAddress("10.88.0.2", 32)
+            .addAddress("fd00:88::2", 128)
+            .addRoute("0.0.0.0", 0)
+            .addRoute("::", 0)
+            .also { runCatching { it.addDisallowedApplication(packageName) } }
+
+    @RequiresPermission(Manifest.permission.ACCESS_NETWORK_STATE)
+    private fun addSystemDnsServers(builder: Builder) {
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val properties = connectivityManager.getLinkProperties(connectivityManager.activeNetwork)
+        properties?.dnsServers.orEmpty().forEach { server ->
+            server.hostAddress?.let(builder::addDnsServer)
+        }
     }
 
-    // ---------------- NativeTun.Listener ----------------
+    private fun establishTun(builder: Builder): Boolean {
+        tunInterface = builder.establish() ?: return false.also { stopSelf() }
+        return true
+    }
 
-    override fun onNativeBatch(buf: ByteArray, validBytes: Int, packetCount: Int) {
+    private fun startNativeLayer(): Boolean {
+        NativeTun.setListener(this)
+        val fileDescriptor = tunInterface!!.detachFd()
+        nativeLayerRunning = NativeTun.start(
+            fileDescriptor,
+            defaultMtu,
+            64,
+            128 * 1024,
+            8,
+            25
+        )
+        if (!nativeLayerRunning) {
+            stopSelf()
+            return false
+        }
+        return true
+    }
+
+    private fun stopTun() {
+        runCatching { if (nativeLayerRunning) NativeTun.stop() }
+        nativeLayerRunning = false
+        NativeTun.setListener(null)
+        runCatching { tunInterface?.close() }
+        tunInterface = null
+    }
+
+    override fun onNativeBatch(buffer: ByteArray, validBytes: Int, packetCount: Int) {
         try {
             if (packetCount <= 0) {
-                parseSingle(ByteBuffer.wrap(buf, 0, validBytes).order(ByteOrder.BIG_ENDIAN))
-            } else {
-                var off = 0
-                var left = validBytes
-                repeat(packetCount) {
-                    if (left < 2) return
-                    val len =
-                        ((buf[off].toInt() and 0xFF) shl 8) or (buf[off + 1].toInt() and 0xFF)
-                    off += 2; left -= 2
-                    if (len <= 0 || len > left) return
-                    parseSingle(ByteBuffer.wrap(buf, off, len).order(ByteOrder.BIG_ENDIAN))
-                    off += len; left -= len
-                }
+                parseSingle(ByteBuffer.wrap(buffer, 0, validBytes).order(ByteOrder.BIG_ENDIAN))
+                return
+            }
+            var offset = 0
+            var remaining = validBytes
+            repeat(packetCount) {
+                if (remaining < 2) return
+                val length = ((buffer[offset].toInt() and 0xFF) shl 8) or (buffer[offset + 1].toInt() and 0xFF)
+                offset += 2
+                remaining -= 2
+                if (length <= 0 || length > remaining) return
+                parseSingle(ByteBuffer.wrap(buffer, offset, length).order(ByteOrder.BIG_ENDIAN))
+                offset += length
+                remaining -= length
             }
         } catch (t: Throwable) {
-            Log.e(TAG, "onNativeBatch parse error", t)
+            Log.e(tag, "native batch parse error", t)
         }
     }
 
-    private fun parseSingle(bb: ByteBuffer) {
-        when (val ip = IpPacket.parse(bb)) {
+    private fun parseSingle(byteBuffer: ByteBuffer) {
+        when (val ip = IpPacket.parse(byteBuffer)) {
             is IpPacket.Ipv4 -> when (ip.protocol) {
-                17 -> handleUdp(ip.src, ip.dst, ip.payload, isV6 = false)
-                6  -> handleTcp(ip.src, ip.dst, ip.payload, isV6 = false)
-                else -> Unit
+                17 -> handleUdp(ip.src, ip.dst, ip.payload, false)
+                6 -> handleTcp(ip.src, ip.dst, ip.payload, false)
             }
             is IpPacket.Ipv6 -> when (ip.nextHeader) {
-                17 -> handleUdp(ip.src, ip.dst, ip.payload, isV6 = true)
-                6  -> handleTcp(ip.src, ip.dst, ip.payload, isV6 = true)
-                else -> Unit
+                17 -> handleUdp(ip.src, ip.dst, ip.payload, true)
+                6 -> handleTcp(ip.src, ip.dst, ip.payload, true)
             }
-            else -> Unit
+
+            null -> Unit
         }
     }
 
-    // ---------------- UDP/TCP ----------------
-
-    private fun handleUdp(src: InetAddress, dst: InetAddress, payload: ByteBuffer, isV6: Boolean) {
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val udp = UdpHeader.parse(payload) ?: return
-        if (udp.dstPort == 53 || udp.srcPort == 53) {
-            recordDns(src.hostAddress, dst.hostAddress, udp.payload)
+    private fun handleUdp(source: InetAddress, destination: InetAddress, payload: ByteBuffer, isIpv6: Boolean) {
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val header = UdpHeader.parse(payload) ?: return
+        if (header.dstPort == 53 || header.srcPort == 53) {
+            recordDns(source.hostAddress, destination.hostAddress, header.payload)
         }
-        val uid = tryResolveUid(
-            cm, 17,
-            InetSocketAddress(src, udp.srcPort),
-            InetSocketAddress(dst, udp.dstPort)
+        val uid = resolveOwnerUid(
+            connectivityManager,
+            17,
+            InetSocketAddress(source, header.srcPort),
+            InetSocketAddress(destination, header.dstPort)
         )
         emitMeta(
             PacketMeta(
                 timestamp = System.currentTimeMillis(),
                 uid = uid,
                 packageName = null,
-                protocol = if (isV6) "UDP6" else "UDP",
-                localAddress = src.hostAddress,
-                localPort = udp.srcPort,
-                remoteAddress = dst.hostAddress,
-                remotePort = udp.dstPort,
-                bytes = udp.length.toLong()
+                protocol = if (isIpv6) "UDP6" else "UDP",
+                localAddress = source.hostAddress,
+                localPort = header.srcPort,
+                remoteAddress = destination.hostAddress,
+                remotePort = header.dstPort,
+                bytes = header.length.toLong()
             )
         )
     }
 
-    private fun handleTcp(src: InetAddress, dst: InetAddress, payload: ByteBuffer, isV6: Boolean) {
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val tcp = TcpHeader.parse(payload) ?: return
-        val uid = tryResolveUid(
-            cm, 6,
-            InetSocketAddress(src, tcp.srcPort),
-            InetSocketAddress(dst, tcp.dstPort)
+    private fun handleTcp(source: InetAddress, destination: InetAddress, payload: ByteBuffer, isIpv6: Boolean) {
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val header = TcpHeader.parse(payload) ?: return
+        val uid = resolveOwnerUid(
+            connectivityManager,
+            6,
+            InetSocketAddress(source, header.srcPort),
+            InetSocketAddress(destination, header.dstPort)
         )
         emitMeta(
             PacketMeta(
                 timestamp = System.currentTimeMillis(),
                 uid = uid,
                 packageName = null,
-                protocol = if (isV6) "TCP6" else "TCP",
-                localAddress = src.hostAddress,
-                localPort = tcp.srcPort,
-                remoteAddress = dst.hostAddress,
-                remotePort = tcp.dstPort,
-                bytes = (tcp.headerLen + tcp.payload.remaining()).toLong()
+                protocol = if (isIpv6) "TCP6" else "TCP",
+                localAddress = source.hostAddress,
+                localPort = header.srcPort,
+                remoteAddress = destination.hostAddress,
+                remotePort = header.dstPort,
+                bytes = (header.headerLen + header.payload.remaining()).toLong()
             )
         )
     }
 
-    // ---------------- DNS ----------------
-
-    private fun recordDns(
-        @Suppress("UNUSED_PARAMETER") srcIp: String,
-        dstIp: String,
-        payload: ByteBuffer
-    ) {
-        val msg = DnsMessage.tryParse(payload.duplicate().order(ByteOrder.BIG_ENDIAN)) ?: return
-        val q = msg.questions.firstOrNull() ?: return
+    private fun recordDns(sourceIp: String, destinationIp: String, payload: ByteBuffer) {
+        val message = DnsMessage.tryParse(payload.duplicate().order(ByteOrder.BIG_ENDIAN)) ?: return
+        val question = message.questions.firstOrNull() ?: return
         val event = DnsMeta(
             timestamp = System.currentTimeMillis(),
             uid = null,
             packageName = null,
-            qname = q.name,
-            qtype = q.type,
-            server = dstIp
+            qname = question.name,
+            qtype = question.type,
+            server = destinationIp
         )
-        scope.launch { runCatching { repo.recordDnsEvent(event) } }
+        ioScope.launch { runCatching { packetRepository.recordDnsEvent(event) } }
     }
-
-    // ---------------- helpers ----------------
 
     private fun emitMeta(meta: PacketMeta) {
-        bus.tryEmit(meta)
-        scope.launch { repo.recordPacketMeta(meta) }
+        eventBus.tryEmit(meta)
+        ioScope.launch { packetRepository.recordPacketMeta(meta) }
     }
 
-    private fun tryResolveUid(
-        cm: ConnectivityManager,
-        proto: Int,
+    private fun resolveOwnerUid(
+        connectivityManager: ConnectivityManager,
+        protocol: Int,
         local: InetSocketAddress,
         remote: InetSocketAddress
     ): Int? {
         val now = System.currentTimeMillis()
-        val key = FlowKey(
-            proto,
-            local.address.hostAddress.orEmpty(), local.port,
-            remote.address.hostAddress.orEmpty(), remote.port,
+        val cacheKey = FlowKey(
+            protocol,
+            local.address.hostAddress.orEmpty(),
+            local.port,
+            remote.address.hostAddress.orEmpty(),
+            remote.port
         ).norm()
-        uidCache.get(key)?.let { if (it.expireAt > now) return it.uid }
 
-        val u1 = runCatching { cm.getConnectionOwnerUid(proto, local, remote) }.getOrNull()
-        val uid = when {
-            (u1 ?: -1) > 0 -> u1
+        uidCache.get(cacheKey)?.let { if (it.expireAt > now) return it.uid }
+
+        val forward = runCatching { connectivityManager.getConnectionOwnerUid(protocol, local, remote) }.getOrNull()
+        val resolved = when {
+            (forward ?: -1) > 0 -> forward
             else -> {
-                val u2 =
-                    runCatching { cm.getConnectionOwnerUid(proto, remote, local) }.getOrNull()
-                if ((u2 ?: -1) > 0) u2 else null
+                val reverse = runCatching { connectivityManager.getConnectionOwnerUid(protocol, remote, local) }.getOrNull()
+                if ((reverse ?: -1) > 0) reverse else null
             }
         }
-        uidCache.put(key, UidEntry(uid, now + UID_TTL_MS))
-        return uid
+
+        uidCache.put(cacheKey, UidEntry(resolved, now + UID_TTL_MS))
+        return resolved
     }
 
     companion object {
         const val ACTION_START = "com.muratcangzm.monitor.VPN_START"
-        const val ACTION_STOP  = "com.muratcangzm.monitor.VPN_STOP"
-        private const val SESSION_NAME = "MetaNet VPN Sniffer"
-        private const val MTU = 1500
-        private const val TAG = "NativeTun"
-        private const val BUFFER_SIZE = 65535
+        const val ACTION_STOP = "com.muratcangzm.monitor.VPN_STOP"
+        private const val sessionName = "MetaNet VPN Sniffer"
+        private const val defaultMtu = 1500
+        private const val tag = "NativeTun"
     }
 }
 
-/* ===================== TCP parser (private, tek dosyada) ===================== */
 private data class TcpHeader(
     val srcPort: Int,
     val dstPort: Int,
@@ -251,27 +268,29 @@ private data class TcpHeader(
     val payload: ByteBuffer
 ) {
     companion object {
-        fun parse(bb: ByteBuffer): TcpHeader? {
-            if (bb.remaining() < 20) return null
-            val pos0 = bb.position()
-            val src = bb.short.toInt() and 0xFFFF
-            val dst = bb.short.toInt() and 0xFFFF
-            bb.int   // seq
-            bb.int   // ack
-            val dataOff = (bb.get().toInt() ushr 4) and 0x0F
-            bb.get() // flags
-            bb.short // window
-            bb.short // checksum
-            bb.short // urg ptr
-            val hdrLen = dataOff * 4
-            if (hdrLen < 20 || pos0 + hdrLen > bb.limit()) {
-                bb.position(pos0); return null
+        fun parse(buffer: ByteBuffer): TcpHeader? {
+            if (buffer.remaining() < 20) return null
+            val start = buffer.position()
+            val src = buffer.short.toInt() and 0xFFFF
+            val dst = buffer.short.toInt() and 0xFFFF
+            buffer.int
+            buffer.int
+            val dataOffset = (buffer.get().toInt() ushr 4) and 0x0F
+            buffer.get()
+            buffer.short
+            buffer.short
+            buffer.short
+            val headerLength = dataOffset * 4
+            if (headerLength < 20 || start + headerLength > buffer.limit()) {
+                buffer.position(start)
+                return null
             }
-            val payload = bb.duplicate().apply {
-                position(pos0 + hdrLen); limit(bb.limit())
+            val payloadSlice = buffer.duplicate().apply {
+                position(start + headerLength)
+                limit(buffer.limit())
             }.slice()
-            bb.position(pos0)
-            return TcpHeader(src, dst, hdrLen, payload)
+            buffer.position(start)
+            return TcpHeader(src, dst, headerLength, payloadSlice)
         }
     }
 }

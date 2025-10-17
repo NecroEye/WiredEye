@@ -9,9 +9,9 @@ import org.koin.dsl.module
 val monitorModule = module {
     viewModel {
         MonitorViewModel(
-            repo = get(),
-            engine = get(qualifier = EngineQualifiers.Active),
-            resolver = get<UidResolver>(),
+            packetRepository = get(),
+            captureEngine = get(qualifier = EngineQualifiers.Active),
+            uidResolver = get<UidResolver>(),
         )
     }
 }

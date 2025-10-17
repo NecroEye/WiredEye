@@ -88,21 +88,21 @@ import java.util.Locale
 @Composable
 fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
     val state by vm.uiState.collectAsStateWithLifecycle()
-    val ctx = LocalContext.current
+    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val snackBarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var isStopping by rememberSaveable { mutableStateOf(false) }
     val vpnLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == Activity.RESULT_OK) vm.onEvent(MonitorUiEvent.StartEngine)
-        else scope.launch { snackBarHost.showSnackbar(ctx.getString(com.muratcangzm.resources.R.string.vpn_denied)) }
+        else scope.launch { snackBarHost.showSnackbar(context.getString(com.muratcangzm.resources.R.string.vpn_denied)) }
     }
     fun startWithVpnConsent() {
-        val i = VpnService.prepare(ctx)
+        val i = VpnService.prepare(context)
         if (i != null) vpnLauncher.launch(i) else vm.onEvent(MonitorUiEvent.StartEngine)
     }
     DisposableEffect(Unit) {
-        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         var lastType: String? = null
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
@@ -114,7 +114,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                 if (t != lastType) {
                     lastType = t
                     scope.launch {
-                        snackBarHost.showSnackbar(ctx.getString(com.muratcangzm.resources.R.string.network_changed_snackbar, t)
+                        snackBarHost.showSnackbar(context.getString(com.muratcangzm.resources.R.string.network_changed_snackbar, t)
                         )
                     }
                     vm.onEvent(MonitorUiEvent.ClearNow)
@@ -125,9 +125,13 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
         onDispose { runCatching { cm.unregisterNetworkCallback(cb) } }
     }
     LaunchedEffect(state.isEngineRunning) { if (!state.isEngineRunning) isStopping = false }
-    LaunchedEffect(Unit) { vm.anomalyEvents.collect { msg -> snackBarHost.showSnackbar(msg) } }
+    LaunchedEffect(Unit) {
+        vm.anomalyEvents.collect { msg ->
+            snackBarHost.showSnackbar(msg)
+        }
+    }
     LaunchedEffect(state.isEngineRunning, state.throughputKbs, state.pps, state.speedMode, state.totalBytes) {
-        updateRunningNotification(ctx, state.isEngineRunning, state.throughputKbs, state.pps, state.speedMode, state.totalBytes)
+        updateRunningNotification(context, state.isEngineRunning, state.throughputKbs, state.pps, state.speedMode, state.totalBytes)
     }
     var statDialog by rememberSaveable { mutableStateOf<StatKind?>(null) }
     val blurRadius = if (statDialog != null) 16.dp else 0.dp
@@ -245,7 +249,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         vm.onEvent(MonitorUiEvent.TogglePin(uid))
                     },
-                    onShareWindowJson = { shareWindowJson(ctx, state.items, snackBarHost, scope) },
+                    onShareWindowJson = { shareWindowJson(context, state.items, snackBarHost, scope) },
                     onCopied = { what ->
                         scope.launch { snackBarHost.showSnackbar("$what copied") }
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -302,11 +306,11 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
         }
         val filter = IntentFilter(ACTION_STOP_ENGINE)
         if (Build.VERSION.SDK_INT >= 33) {
-            ctx.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("DEPRECATION")
-            ContextCompat.registerReceiver(ctx, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+            ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         }
-        onDispose { runCatching { ctx.unregisterReceiver(receiver) } }
+        onDispose { runCatching { context.unregisterReceiver(receiver) } }
     }
 }

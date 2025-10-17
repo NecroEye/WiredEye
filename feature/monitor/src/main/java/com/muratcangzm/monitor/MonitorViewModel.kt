@@ -1,6 +1,5 @@
 package com.muratcangzm.monitor
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.muratcangzm.data.helper.UidResolver
@@ -15,7 +14,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.sample
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -24,84 +34,79 @@ import kotlin.math.max
 import kotlin.math.min
 
 class MonitorViewModel(
-    private val repo: PacketRepository,
-    private val engine: PacketCaptureEngine,
-    private val resolver: UidResolver
+    private val packetRepository: PacketRepository,
+    private val captureEngine: PacketCaptureEngine,
+    private val uidResolver: UidResolver
 ) : ViewModel() {
 
-    private val filterText = MutableStateFlow("")
-    private val minBytes = MutableStateFlow(0L)
-    private val windowMillis = MutableStateFlow(10_000L)
-    private val clearAfter = MutableStateFlow(0L)
-    private val speedMode = MutableStateFlow(SpeedMode.FAST)
-    private val viewMode = MutableStateFlow( ViewMode.RAW)
-    private val engineState: StateFlow<EngineState> = engine.state
-    private val totalAllTime = MutableStateFlow(0L)
-    private val pinnedUids = MutableStateFlow<Set<Int>>(emptySet())
-    private val mutedUids = MutableStateFlow<Set<Int>>(emptySet())
+    private val filterQuery = MutableStateFlow("")
+    private val minimumBytes = MutableStateFlow(0L)
+    private val windowDurationMillis = MutableStateFlow(10_000L)
+    private val clearThresholdMillis = MutableStateFlow(0L)
+    private val speed = MutableStateFlow(SpeedMode.FAST)
+    private val view = MutableStateFlow(ViewMode.RAW)
+    private val engineState: StateFlow<EngineState> = captureEngine.state
+    private val totalBytesAllTime = MutableStateFlow(0L)
+    private val pinnedUidSet = MutableStateFlow<Set<Int>>(emptySet())
+    private val mutedUidSet = MutableStateFlow<Set<Int>>(emptySet())
 
-    private val labelCache = ConcurrentHashMap<Int, String?>()
-    private val packageCache = ConcurrentHashMap<Int, String?>()
+    private val labelByUid = ConcurrentHashMap<Int, String?>()
+    private val packageByUid = ConcurrentHashMap<Int, String?>()
 
-    private data class RateEntry(var lastTs: Long, var ema: Double, var lastAlertTs: Long)
-    private val rateByHost = ConcurrentHashMap<String, RateEntry>()
-    private val seenHostKeys = ConcurrentHashMap<String, Long>()
+    private data class RateSample(var lastTimestamp: Long, var exponentialMovingAverage: Double, var lastAlertTimestamp: Long)
+    private val rateByUidAndHost = ConcurrentHashMap<String, RateSample>()
+    private val seenUidHostKeys = ConcurrentHashMap<String, Long>()
 
-    private val anomalyHighlights = MutableStateFlow<Set<String>>(emptySet())
+    private val anomalyKeys = MutableStateFlow<Set<String>>(emptySet())
     private val _anomalyEvents = MutableSharedFlow<String>(extraBufferCapacity = 4)
-    val anomalyEvents: SharedFlow<String> = _anomalyEvents
+    val anomalyEvents: kotlinx.coroutines.flow.SharedFlow<String> = _anomalyEvents
 
-    private val RATE_THRESHOLD_BPS = 128 * 1024.0
-    private val NEW_HOST_BYTES_MIN = 64 * 1024L
-    private val ALERT_DEBOUNCE_MS = 5_000L
-    private val HIGHLIGHT_HOLD_MS = 1_600L
+    private val rateThresholdBytesPerSecond = 128 * 1024.0
+    private val newHostBytesMinimum = 64 * 1024L
+    private val alertDebounceMillis = 5_000L
+    private val highlightHoldMillis = 1_600L
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val windowStream: Flow<List<PacketMeta>> =
-        windowMillis
-            .flatMapLatest { repo.liveWindow(it) }
+    private val windowPackets: StateFlow<List<PacketMeta>> =
+        windowDurationMillis
+            .flatMapLatest { packetRepository.liveWindow(it) }
             .buffer(Channel.BUFFERED)
             .conflate()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
         viewModelScope.launch {
-            engine.events.collect { meta ->
-                Log.d("WireLog","VM got meta ${meta.protocol} ${meta.bytes}")
-                repo.recordPacketMeta(meta)
-                detectByteSpike(meta)
-                detectNewHostSpike(meta)
-                totalAllTime.value = totalAllTime.value + meta.bytes
+            captureEngine.events.collect { meta ->
+                packetRepository.recordPacketMeta(meta)
+                detectHighThroughput(meta)
+                detectNewHost(meta)
+                totalBytesAllTime.value = totalBytesAllTime.value + meta.bytes
             }
         }
     }
 
     private data class Controls(
-        val win: Long,
-        val filter: String,
-        val minB: Long,
+        val windowMillis: Long,
+        val query: String,
+        val minBytes: Long,
         val terms: List<String>,
-        val clearAfter: Long
+        val clearAfterMillis: Long
     )
 
-    private fun tokenize(q: String): List<String> =
-        q.lowercase(Locale.getDefault())
+    private fun tokenize(query: String): List<String> =
+        query.lowercase(Locale.getDefault())
             .split(' ', '\t')
-            .mapNotNull { t -> val s = t.trim(); s.ifEmpty { null } }
+            .mapNotNull { token -> token.trim().ifEmpty { null } }
 
     private val controls: StateFlow<Controls> =
-        combine(windowMillis, filterText, minBytes, clearAfter) { win, filter, minB, clearTs ->
-            Controls(win = win, filter = filter, minB = minB, terms = tokenize(filter), clearAfter = clearTs)
-        }
-            .distinctUntilChanged()
-            .stateIn(
-                viewModelScope,
-                SharingStarted.WhileSubscribed(5_000),
-                Controls(10_000L, "", 0L, emptyList(), 0L)
-            )
+        combine(windowDurationMillis, filterQuery, minimumBytes, clearThresholdMillis) { win, q, minB, clearTs ->
+            Controls(windowMillis = win, query = q, minBytes = minB, terms = tokenize(q), clearAfterMillis = clearTs)
+        }.distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Controls(10_000L, "", 0L, emptyList(), 0L))
 
-    private val cadenceFlow: StateFlow<Long> =
-        speedMode.map { mode ->
-            when (mode) {
+    private val cadenceMillis: StateFlow<Long> =
+        speed.map {
+            when (it) {
                 SpeedMode.ECO -> 500L
                 SpeedMode.FAST -> 220L
                 SpeedMode.TURBO -> 100L
@@ -109,137 +114,143 @@ class MonitorViewModel(
         }.stateIn(viewModelScope, SharingStarted.Eagerly, 220L)
 
     private data class Inputs(
-        val list: List<PacketMeta>,
-        val c: Controls,
-        val pins: Set<Int>,
-        val mutes: Set<Int>
+        val packets: List<PacketMeta>,
+        val controls: Controls,
+        val pinned: Set<Int>,
+        val muted: Set<Int>
     )
 
-    private val inputsFlow: Flow<Inputs> =
-        combine(windowStream, controls, pinnedUids, mutedUids) { list, c, pins, mutes ->
+    private val inputs: StateFlow<Inputs> =
+        combine(windowPackets, controls, pinnedUidSet, mutedUidSet) { list, c, pins, mutes ->
             Inputs(list, c, pins, mutes)
-        }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Inputs(emptyList(), controls.value, emptySet(), emptySet()))
 
     @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
-    private val itemsFlow: StateFlow<List<UiPacket>> =
-        cadenceFlow.flatMapLatest { cadence ->
-            inputsFlow.combine(viewMode) { inp, mode ->
+    private val uiPackets: StateFlow<List<UiPacket>> =
+        cadenceMillis.flatMapLatest { cadence ->
+            inputs.combine(view) { input, selectedView ->
                 withContext(Dispatchers.Default) {
-                    val filtered = inp.list
+                    val filtered = input.packets
                         .asSequence()
-                        .filter { it.bytes >= inp.c.minB && it.timestamp >= inp.c.clearAfter && matchesFilter(it, inp.c.terms) }
-                        .filter { it.uid == null || !inp.mutes.contains(it.uid!!) }
+                        .filter { it.bytes >= input.controls.minBytes }
+                        .filter { it.timestamp >= input.controls.clearAfterMillis }
+                        .filter { matchesFilter(it, input.controls.terms) }
+                        .filter { it.uid == null || !input.muted.contains(it.uid!!) }
                         .toList()
-                    val ui: List<UiPacket> = when (mode) {
+
+                    val mapped = when (selectedView) {
                         ViewMode.RAW -> filtered.asReversed().map { it.toUiPacket() }
                         ViewMode.AGGREGATED -> aggregateToUi(filtered)
                     }
 
-                    ui.sortedWith(
-                        compareByDescending<UiPacket> { pkt ->
-                            val uid = pkt.raw.uid
-                            uid != null && inp.pins.contains(uid)
+                    mapped.sortedWith(
+                        compareByDescending<UiPacket> { packet ->
+                            val uid = packet.raw.uid
+                            uid != null && input.pinned.contains(uid)
                         }.thenByDescending { it.raw.timestamp }
                     )
                 }
-            }
-                .distinctUntilChanged()
-                .sample(cadence)
+            }.distinctUntilChanged().sample(cadence)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private data class Stats(val total: Long, val uniqueApps: Int, val pps: Double, val kbs: Double)
+    private data class Stats(val totalAllTimeBytes: Long, val uniqueAppCount: Int, val packetsPerSecond: Double, val kilobytesPerSecond: Double)
 
     @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
-    private val statsFlow: StateFlow<Stats> =
-        cadenceFlow.flatMapLatest { cadence ->
-            combine(windowStream, controls) { list, c ->
+    private val stats: StateFlow<Stats> =
+        cadenceMillis.flatMapLatest { cadence ->
+            combine(windowPackets, controls) { list, c ->
                 withContext(Dispatchers.Default) {
-                    val f = list.asSequence()
-                        .filter { it.bytes >= c.minB && it.timestamp >= c.clearAfter && matchesFilter(it, c.terms) }
+                    val filtered = list.asSequence()
+                        .filter { it.bytes >= c.minBytes }
+                        .filter { it.timestamp >= c.clearAfterMillis }
+                        .filter { matchesFilter(it, c.terms) }
                         .toList()
-                    val pps = if (c.win > 0) f.size / (c.win / 1000.0) else 0.0
-                    val windowTotalBytes = f.sumOf { it.bytes }
-                    val kbs = if (c.win > 0) (windowTotalBytes.toDouble() / (c.win / 1000.0)) / 1024.0 else 0.0
-                    val uniqueAppsSet = HashSet<String>()
-                    for (packet in f) {
+
+                    val pps = if (c.windowMillis > 0) filtered.size / (c.windowMillis / 1000.0) else 0.0
+                    val sumBytes = filtered.sumOf { it.bytes }
+                    val kbs = if (c.windowMillis > 0) (sumBytes.toDouble() / (c.windowMillis / 1000.0)) / 1024.0 else 0.0
+
+                    val uniqueKeys = HashSet<String>()
+                    for (packet in filtered) {
                         val key = packet.packageName ?: "uid:${packet.uid ?: -1}"
-                        uniqueAppsSet.add(key)
+                        uniqueKeys.add(key)
                     }
-                    val unique = uniqueAppsSet.size
-                    Stats(totalAllTime.value, unique, pps, kbs)
+                    Stats(totalBytesAllTime.value, uniqueKeys.size, pps, kbs)
                 }
             }.sample(cadence)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Stats(0L, 0, 0.0, 0.0))
 
-    private val isRunningFlow: StateFlow<Boolean> =
+    private val isRunning: StateFlow<Boolean> =
         engineState.map { it is EngineState.Running }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    private val baseUi: Flow<MonitorUiState> =
-        combine(itemsFlow, controls, isRunningFlow, statsFlow, pinnedUids) { items, c, running, s, pins ->
+    private val baseUi: StateFlow<MonitorUiState> =
+        combine(uiPackets, controls, isRunning, stats, pinnedUidSet) { items, c, running, s, pins ->
             MonitorUiState(
                 isEngineRunning = running,
                 items = items,
-                filterText = c.filter,
-                minBytes = c.minB,
-                windowMillis = c.win,
-                totalBytes = s.total,
-                uniqueApps = s.uniqueApps,
-                pps = s.pps,
-                throughputKbs = s.kbs,
+                filterText = c.query,
+                minBytes = c.minBytes,
+                windowMillis = c.windowMillis,
+                totalBytes = s.totalAllTimeBytes,
+                uniqueApps = s.uniqueAppCount,
+                pps = s.packetsPerSecond,
+                throughputKbs = s.kilobytesPerSecond,
                 pinnedUids = pins
             )
-        }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorUiState())
 
     val uiState: StateFlow<MonitorUiState> =
         baseUi
-            .combine(speedMode) { st, sm -> st.copy(speedMode = sm) }
-            .combine(viewMode) { st, vm -> st.copy(viewMode = vm) }
-            .combine(anomalyHighlights) { st, hi -> st.copy(anomalyKeys = hi) }
+            .combine(speed) { state, mode -> state.copy(speedMode = mode) }
+            .combine(view) { state, selected -> state.copy(viewMode = selected) }
+            .combine(anomalyKeys) { state, keys -> state.copy(anomalyKeys = keys) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorUiState())
 
-    fun onEvent(ev: MonitorUiEvent) {
-        when (ev) {
-            is MonitorUiEvent.SetFilter -> filterText.value = ev.text
-            is MonitorUiEvent.SetMinBytes -> minBytes.value = ev.value
-            is MonitorUiEvent.SetWindow -> windowMillis.value = ev.millis
-            is MonitorUiEvent.TogglePin -> togglePin(ev.uid)
-            is MonitorUiEvent.ToggleMute -> toggleMute(ev.uid)
-            is MonitorUiEvent.SetSpeed -> speedMode.value = ev.mode
-            is MonitorUiEvent.SetViewMode -> viewMode.value = ev.mode
-            MonitorUiEvent.ClearFilter -> filterText.value = ""
-            MonitorUiEvent.StartEngine -> viewModelScope.launch { engine.start() }
-            MonitorUiEvent.StopEngine -> viewModelScope.launch { engine.stop() }
-            MonitorUiEvent.ClearNow -> {
-                val now = System.currentTimeMillis()
-                clearAfter.value = now
-                totalAllTime.value = 0L
-                anomalyHighlights.value = emptySet()
-                rateByHost.clear()
-                seenHostKeys.clear()
-            }
+    fun onEvent(event: MonitorUiEvent) {
+        when (event) {
+            is MonitorUiEvent.SetFilter -> filterQuery.value = event.text
+            is MonitorUiEvent.SetMinBytes -> minimumBytes.value = event.value
+            is MonitorUiEvent.SetWindow -> windowDurationMillis.value = event.millis
+            is MonitorUiEvent.TogglePin -> togglePin(event.uid)
+            is MonitorUiEvent.ToggleMute -> toggleMute(event.uid)
+            is MonitorUiEvent.SetSpeed -> speed.value = event.mode
+            is MonitorUiEvent.SetViewMode -> view.value = event.mode
+            MonitorUiEvent.ClearFilter -> filterQuery.value = ""
+            MonitorUiEvent.StartEngine -> viewModelScope.launch { captureEngine.start() }
+            MonitorUiEvent.StopEngine -> viewModelScope.launch { captureEngine.stop() }
+            MonitorUiEvent.ClearNow -> clearNow()
         }
     }
 
+    private fun clearNow() {
+        val now = System.currentTimeMillis()
+        clearThresholdMillis.value = now
+        totalBytesAllTime.value = 0L
+        anomalyKeys.value = emptySet()
+        rateByUidAndHost.clear()
+        seenUidHostKeys.clear()
+    }
+
     private fun togglePin(uid: Int) {
-        val cur = pinnedUids.value
-        pinnedUids.value = if (cur.contains(uid)) cur - uid else cur + uid
+        val current = pinnedUidSet.value
+        pinnedUidSet.value = if (current.contains(uid)) current - uid else current + uid
     }
 
     private fun toggleMute(uid: Int) {
-        val cur = mutedUids.value
-        mutedUids.value = if (cur.contains(uid)) cur - uid else cur + uid
+        val current = mutedUidSet.value
+        mutedUidSet.value = if (current.contains(uid)) current - uid else current + uid
     }
 
     private fun PacketMeta.toUiPacket(): UiPacket {
-        val uidStr = uid?.toString() ?: "?"
-        val pkg = packageName ?: uid?.let { safePackage(it) } ?: ""
-        val label = uid?.let { safeLabel(it) } ?: ""
+        val uidText = uid?.toString() ?: "?"
+        val packageNameOrResolved = packageName ?: uid?.let { safePackage(it) } ?: ""
+        val labelOrResolved = uid?.let { safeLabel(it) } ?: ""
         val appText = when {
-            label.isNotBlank() && pkg.isNotBlank() -> "$label · $pkg (uid:$uidStr)"
-            label.isNotBlank() -> "$label (uid:$uidStr)"
-            pkg.isNotBlank() -> "$pkg (uid:$uidStr)"
-            else -> "uid:$uidStr"
+            labelOrResolved.isNotBlank() && packageNameOrResolved.isNotBlank() -> "$labelOrResolved · $packageNameOrResolved (uid:$uidText)"
+            labelOrResolved.isNotBlank() -> "$labelOrResolved (uid:$uidText)"
+            packageNameOrResolved.isNotBlank() -> "$packageNameOrResolved (uid:$uidText)"
+            else -> "uid:$uidText"
         }
         val local = if (localAddress == "-" || localPort <= 0) "—" else "$localAddress:$localPort"
         val remote = if (remoteAddress == "-" || remotePort <= 0) "—" else "$remoteAddress:$remotePort"
@@ -249,13 +260,13 @@ class MonitorViewModel(
             localPort > 0 -> localPort
             else -> 0
         }
-        val svc = SERVICE_NAMES[port]
-        val protoPretty = if (svc != null && port > 0) "$transport • $svc:$port" else transport
+        val service = SERVICE_NAMES[port]
+        val protocolPretty = if (service != null && port > 0) "$transport • $service:$port" else transport
         return UiPacket(
-            key = "$timestamp:$uidStr:$bytes:$localPort:$remotePort:$localAddress:$remoteAddress",
+            key = "$timestamp:$uidText:$bytes:$localPort:$remotePort:$localAddress:$remoteAddress",
             time = formatTime(timestamp),
             app = appText,
-            proto = protoPretty,
+            proto = protocolPretty,
             from = local,
             to = remote,
             bytesLabel = humanBytes(bytes),
@@ -264,70 +275,69 @@ class MonitorViewModel(
     }
 
     private fun aggregateToUi(list: List<PacketMeta>): List<UiPacket> {
-        data class Agg(var total: Long, var last: PacketMeta)
-        val est = min(max(16, list.size / 4), 1_000_000)
-        val map = HashMap<String, Agg>(est)
-        for (m in list) {
-            val key = aggKey(m)
-            val a = map[key]
-            if (a == null) {
-                map[key] = Agg(total = m.bytes, last = m)
+        data class Aggregate(var totalBytes: Long, var latest: PacketMeta)
+        val capacity = min(max(16, list.size / 4), 1_000_000)
+        val map = HashMap<String, Aggregate>(capacity)
+        for (meta in list) {
+            val key = aggregateKey(meta)
+            val aggregate = map[key]
+            if (aggregate == null) {
+                map[key] = Aggregate(totalBytes = meta.bytes, latest = meta)
             } else {
-                a.total += m.bytes
-                if (m.timestamp > a.last.timestamp) a.last = m
+                aggregate.totalBytes += meta.bytes
+                if (meta.timestamp > aggregate.latest.timestamp) aggregate.latest = meta
             }
         }
-        val out = ArrayList<UiPacket>(map.size)
-        for ((k, a) in map) {
-            val last = a.last
-            val synthetic = last.copy(bytes = a.total, protocol = "AGG")
+        val output = ArrayList<UiPacket>(map.size)
+        for ((key, aggregate) in map) {
+            val last = aggregate.latest
+            val synthetic = last.copy(bytes = aggregate.totalBytes, protocol = "AGG")
             val ui = synthetic.toUiPacket()
-            out.add(ui.copy(key = "agg:$k", proto = "AGG", bytesLabel = humanBytes(a.total)))
+            output.add(ui.copy(key = "agg:$key", proto = "AGG", bytesLabel = humanBytes(aggregate.totalBytes)))
         }
-        return out
+        return output
     }
 
-    private fun aggKey(m: PacketMeta) =
-        "${m.uid ?: -1}|${m.packageName ?: ""}|${m.protocol.uppercase()}|${m.remoteAddress}:${m.remotePort}"
+    private fun aggregateKey(meta: PacketMeta): String =
+        "${meta.uid ?: -1}|${meta.packageName ?: ""}|${meta.protocol.uppercase()}|${meta.remoteAddress}:${meta.remotePort}"
 
-    private fun matchesFilter(m: PacketMeta, terms: List<String>): Boolean {
+    private fun matchesFilter(meta: PacketMeta, terms: List<String>): Boolean {
         if (terms.isEmpty()) return true
-        val label = m.uid?.let { safeLabel(it) } ?: ""
-        val pkg = m.packageName ?: m.uid?.let { safePackage(it) } ?: ""
+        val label = meta.uid?.let { safeLabel(it) } ?: ""
+        val pkg = meta.packageName ?: meta.uid?.let { safePackage(it) } ?: ""
         val haystack = buildString {
             append(label).append(' ')
             append(pkg).append(' ')
-            append("uid:").append(m.uid ?: "").append(' ')
-            append(m.protocol).append(' ')
-            append(m.localAddress ?: "").append(' ')
-            append(m.remoteAddress ?: "").append(' ')
-            append(m.localPort).append(' ')
-            append(m.remotePort)
+            append("uid:").append(meta.uid ?: "").append(' ')
+            append(meta.protocol).append(' ')
+            append(meta.localAddress ?: "").append(' ')
+            append(meta.remoteAddress ?: "").append(' ')
+            append(meta.localPort).append(' ')
+            append(meta.remotePort)
         }.lowercase(Locale.getDefault())
-        for (t in terms) if (!haystack.contains(t)) return false
-        return true
+        return terms.all { haystack.contains(it) }
     }
 
     private fun safeLabel(uid: Int): String? {
-        labelCache[uid]?.let { return it }
-        val v = runCatching { resolver.labelFor(uid) }.getOrNull()
-        if (v != null) labelCache.putIfAbsent(uid, v)
-        return v
+        labelByUid[uid]?.let { return it }
+        val value = runCatching { uidResolver.labelFor(uid) }.getOrNull()
+        if (value != null) labelByUid.putIfAbsent(uid, value)
+        return value
     }
 
     private fun safePackage(uid: Int): String? {
-        packageCache[uid]?.let { return it }
-        val v = runCatching { resolver.packageFor(uid) }.getOrNull()
-        if (v != null) packageCache.putIfAbsent(uid, v)
-        return v
+        packageByUid[uid]?.let { return it }
+        val value = runCatching { uidResolver.packageFor(uid) }.getOrNull()
+        if (value != null) packageByUid.putIfAbsent(uid, value)
+        return value
     }
 
     private val dnsLock = Any()
-    private val dnsCache = object : java.util.LinkedHashMap<String, String>(256, 0.75f, true) {
+    private val dnsCache = object : LinkedHashMap<String, String>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 512
     }
 
-    data class AsnInfo(val asn: Int, val cc: String, val org: String)
+    data class AsnInfo(val asn: Int, val countryCode: String, val organization: String)
     private data class Cidr(val base: String, val prefix: Int, val info: AsnInfo)
 
     private val asnTable: List<Cidr> = listOf(
@@ -340,7 +350,7 @@ class MonitorViewModel(
 
     suspend fun resolveHost(ip: String): String? = withContext(Dispatchers.IO) {
         synchronized(dnsLock) { dnsCache[ip] }?.let { return@withContext it }
-        if (!IP_REGEX.matches(ip)) return@withContext null
+        if (!ipPattern.matches(ip)) return@withContext null
         val host = runCatching {
             val addr = java.net.InetAddress.getByName(ip)
             val name = addr.canonicalHostName ?: addr.hostName
@@ -351,7 +361,7 @@ class MonitorViewModel(
     }
 
     fun asnCountry(ip: String): AsnInfo? {
-        if (!IPV4_REGEX.matches(ip)) return null
+        if (!ipv4Pattern.matches(ip)) return null
         val x = ipv4ToInt(ip)
         return asnTable.firstOrNull { ipv4InCidr(x, it) }?.info
     }
@@ -367,81 +377,83 @@ class MonitorViewModel(
         return (addr and mask) == (base and mask)
     }
 
-    private val IP_REGEX = Regex("""^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+$""")
-    private val IPV4_REGEX = Regex("""^(\d{1,3}\.){3}\d{1,3}$""")
+    private val ipPattern = Regex("""^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+$""")
+    private val ipv4Pattern = Regex("""^(\d{1,3}\.){3}\d{1,3}$""")
 
-    private fun detectByteSpike(m: PacketMeta) {
-        val host = m.remoteAddress ?: return
-        if (host == "-" || m.bytes <= 0) return
-        val uidKey = m.uid ?: return
-        val key = "$uidKey|$host"
-        val now = m.timestamp
-        val entry = rateByHost.getOrPut(key) { RateEntry(lastTs = 0L, ema = 0.0, lastAlertTs = 0L) }
-        if (entry.lastTs > 0L) {
-            val dtMs = (now - entry.lastTs).coerceAtLeast(1L)
-            val instBps = m.bytes.toDouble() * 1000.0 / dtMs.toDouble()
+    private fun detectHighThroughput(meta: PacketMeta) {
+        val host = meta.remoteAddress ?: return
+        if (host == "-" || meta.bytes <= 0) return
+        val uid = meta.uid ?: return
+        val key = "$uid|$host"
+        val now = meta.timestamp
+        val sample = rateByUidAndHost.getOrPut(key) { RateSample(0L, 0.0, 0L) }
+        if (sample.lastTimestamp > 0L) {
+            val deltaMillis = (now - sample.lastTimestamp).coerceAtLeast(1L)
+            val instantaneousBytesPerSecond = meta.bytes.toDouble() * 1000.0 / deltaMillis.toDouble()
             val alpha = 0.85
-            entry.ema = entry.ema * alpha + instBps * (1.0 - alpha)
-            if (entry.ema > RATE_THRESHOLD_BPS && (now - entry.lastAlertTs) > ALERT_DEBOUNCE_MS) {
-                entry.lastAlertTs = now
-                val msg = "High throughput ${humanBytesPerSec(entry.ema)} to $host"
-                flagAnomaly(m, msg)
+            sample.exponentialMovingAverage = sample.exponentialMovingAverage * alpha + instantaneousBytesPerSecond * (1.0 - alpha)
+            if (sample.exponentialMovingAverage > rateThresholdBytesPerSecond && (now - sample.lastAlertTimestamp) > alertDebounceMillis) {
+                sample.lastAlertTimestamp = now
+                val message = "High throughput ${formatBytesPerSecond(sample.exponentialMovingAverage)} to $host"
+                flagAnomaly(meta, message)
             }
         }
-        entry.lastTs = now
+        sample.lastTimestamp = now
     }
 
-    private fun detectNewHostSpike(m: PacketMeta) {
-        val host = m.remoteAddress ?: return
-        if (host == "-" || m.bytes < NEW_HOST_BYTES_MIN) return
-        val uidKey = m.uid ?: return
-        val key = "$uidKey|$host"
-        if (seenHostKeys.putIfAbsent(key, m.timestamp) == null) {
-            val msg = "New host spike: $host • ${humanBytes(m.bytes)}"
-            flagAnomaly(m, msg)
+    private fun detectNewHost(meta: PacketMeta) {
+        val host = meta.remoteAddress ?: return
+        if (host == "-" || meta.bytes < newHostBytesMinimum) return
+        val uid = meta.uid ?: return
+        val key = "$uid|$host"
+        if (seenUidHostKeys.putIfAbsent(key, meta.timestamp) == null) {
+            val message = "New host spike: $host • ${humanBytes(meta.bytes)}"
+            flagAnomaly(meta, message)
         }
     }
 
-    private fun flagAnomaly(m: PacketMeta, message: String) {
-        val uiKey = uiKeyOf(m)
-        val cur = anomalyHighlights.value
-        if (!cur.contains(uiKey)) {
-            anomalyHighlights.value = cur + uiKey
+    private fun flagAnomaly(meta: PacketMeta, message: String) {
+        val key = uiKey(meta)
+        val current = anomalyKeys.value
+        if (!current.contains(key)) {
+            anomalyKeys.value = current + key
             viewModelScope.launch {
-                kotlinx.coroutines.delay(HIGHLIGHT_HOLD_MS)
-                anomalyHighlights.value = anomalyHighlights.value - uiKey
+                kotlinx.coroutines.delay(highlightHoldMillis)
+                anomalyKeys.value = anomalyKeys.value - key
             }
         }
         _anomalyEvents.tryEmit(message)
     }
 
-    private fun uiKeyOf(m: PacketMeta): String {
-        val uidStr = m.uid?.toString() ?: "?"
-        return "${m.timestamp}:${uidStr}:${m.bytes}:${m.localPort}:${m.remotePort}:${m.localAddress}:${m.remoteAddress}"
+    private fun uiKey(meta: PacketMeta): String {
+        val uidText = meta.uid?.toString() ?: "?"
+        return "${meta.timestamp}:$uidText:${meta.bytes}:${meta.localPort}:${meta.remotePort}:${meta.localAddress}:${meta.remoteAddress}"
     }
 
-    private fun humanBytesPerSec(bps: Double): String {
+    private fun formatBytesPerSecond(bytesPerSecond: Double): String {
         val units = arrayOf("B/s", "KB/s", "MB/s", "GB/s")
-        var v = bps
-        var i = 0
-        while (v >= 1024.0 && i < units.lastIndex) {
-            v /= 1024.0; i++
+        var value = bytesPerSecond
+        var index = 0
+        while (value >= 1024.0 && index < units.lastIndex) {
+            value /= 1024.0
+            index++
         }
-        return String.format(Locale.getDefault(), "%.1f %s", v, units[i])
+        return String.format(Locale.getDefault(), "%.1f %s", value, units[index])
     }
 
-    private fun humanBytes(b: Long): String {
-        val u = arrayOf("B", "KB", "MB", "GB", "TB")
-        var v = b.toDouble()
-        var i = 0
-        while (v >= 1024 && i < u.lastIndex) {
-            v /= 1024; i++
+    private fun humanBytes(bytes: Long): String {
+        val units = arrayOf("B", "KB", "MB", "GB", "TB")
+        var value = bytes.toDouble()
+        var index = 0
+        while (value >= 1024 && index < units.lastIndex) {
+            value /= 1024
+            index++
         }
-        return String.format(Locale.getDefault(), "%.1f %s", v, u[i])
+        return String.format(Locale.getDefault(), "%.1f %s", value, units[index])
     }
 
-    private fun formatTime(ts: Long): String =
-        java.time.Instant.ofEpochMilli(ts)
+    private fun formatTime(timestamp: Long): String =
+        java.time.Instant.ofEpochMilli(timestamp)
             .atZone(java.time.ZoneId.systemDefault())
             .toLocalTime()
             .toString()
