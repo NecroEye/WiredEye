@@ -52,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -176,37 +177,74 @@ fun GlowingStatChip(
     onClick: (() -> Unit)? = null
 ) {
     var idle by remember { mutableStateOf(false) }
-    LaunchedEffect(value) { idle = false; delay(2500); idle = true }
-    val inf = rememberInfiniteTransition(label = "chipGlow")
-    val pulse by inf.animateFloat(
-        initialValue = 0.65f,
-        targetValue = 1.6f,
-        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 1250, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
-        label = "glowPulse"
-    )
+    LaunchedEffect(value) {
+        idle = false
+        delay(2500)
+        idle = true
+    }
+
+    val pulse = remember { Animatable(0.65f) }
+
+    LaunchedEffect(idle) {
+        if (!idle) {
+            pulse.snapTo(0f)
+            return@LaunchedEffect
+        }
+        while (true) {
+            pulse.animateTo(
+                targetValue = 1.6f,
+                animationSpec = tween(durationMillis = 625, easing = FastOutSlowInEasing)
+            )
+            pulse.animateTo(
+                targetValue = 0.65f,
+                animationSpec = tween(durationMillis = 625, easing = FastOutSlowInEasing)
+            )
+        }
+    }
+
+    val baseSurface = remember { Color(0xFF101826) }
     val shadowColor by rememberUpdatedState(accent)
-    val baseSurface = Color(0xFF101826)
-    val borderStroke = BorderStroke(1.dp, accent.copy(alpha = 0.15f))
-    val glowAlpha = if (idle) pulse else 0f
-    val blurRadius = if (idle) 18f else 0f
+    val borderStroke = remember(accent) { BorderStroke(1.dp, accent.copy(alpha = 0.15f)) }
+
+    val glowAlpha = if (idle) pulse.value else 0f
+    val blurRadius = if (idle) 18f * glowAlpha.coerceIn(0f, 1f) else 0f
+
+    val onClickStable by rememberUpdatedState(onClick)
+
     Surface(
         tonalElevation = 3.dp,
         color = baseSurface,
         shape = RoundedCornerShape(16.dp),
         border = borderStroke,
         modifier = Modifier.then(
-            if (onClick != null)
-                Modifier.clip(RoundedCornerShape(16.dp)).clickable { onClick() }
+            if (onClickStable != null)
+                Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { onClickStable?.invoke() }
             else Modifier
         )
     ) {
+
+        val textStyle = MaterialTheme.typography.titleLarge.copy(
+            shadow = Shadow(
+                color = shadowColor.copy(alpha = glowAlpha),
+                offset = Offset.Zero,
+                blurRadius = blurRadius
+            )
+        )
+
+        val staticLabel = remember(label) {
+            movableContentOf {
+                Text(text = label, color = Color(0xFF9EB2C0))
+            }
+        }
+
         Column(Modifier.padding(12.dp)) {
-            Text(label, color = Color(0xFF9EB2C0))
+            staticLabel()
+            val valueStyle = remember(glowAlpha, shadowColor) { textStyle }
             Text(
-                value,
-                style = MaterialTheme.typography.titleLarge.copy(
-                    shadow = Shadow(color = shadowColor.copy(alpha = glowAlpha), offset = Offset.Zero, blurRadius = blurRadius)
-                ),
+                text = value,
+                style = valueStyle,
                 color = accent
             )
         }
@@ -343,11 +381,11 @@ fun Segmented(
 
 @Composable
 fun GhostDangerButton(
+    modifier: Modifier = Modifier,
     text: String,
     icon: String,
     enabled: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(10.dp)
     val alpha by animateFloatAsState(
@@ -592,6 +630,7 @@ fun GhostTonalButton(
                         }
                     }
                 }
+
                 fun drawSegment(s0: Float, s1: Float) {
                     val P2 = (LedgeTop + Lcorner + LedgeRight + Lcorner + LedgeBottom + Lcorner + LedgeLeft + Lcorner)
                     if (s1 <= P2) drawPartial(s0, s1) else {
@@ -599,6 +638,7 @@ fun GhostTonalButton(
                         drawPartial(0f, s1 - P2)
                     }
                 }
+
                 val startS = phase * P
                 val endS = startS + bandLen
                 drawSegment(startS, endS)
