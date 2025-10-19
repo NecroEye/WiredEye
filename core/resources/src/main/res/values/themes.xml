@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.WiredEye.Splash" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowSplashScreenBackground" tools:ignore="NewApi">@color/ink_void</item>
+        <item name="android:windowSplashScreenAnimatedIcon" tools:ignore="NewApi">@drawable/ghostly_mark</item>
+        <item name="android:windowSplashScreenAnimationDuration" tools:ignore="NewApi">200</item>
+    </style>
+</resources>

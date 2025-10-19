@@ -103,6 +103,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:nativelib"))
     implementation(project(":core:network"))
+    implementation(project(":core:resources"))
     implementation(project(":feature:monitor"))
 
     // --- DI + WorkManager ---
@@ -121,6 +122,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.core.splashscreen)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

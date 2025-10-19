@@ -54,7 +54,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.WiredEye"
+            android:theme="@style/Theme.WiredEye.Splash"
             tools:ignore="RedundantLabel">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

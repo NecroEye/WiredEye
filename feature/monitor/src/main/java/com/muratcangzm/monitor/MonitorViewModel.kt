@@ -16,6 +16,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.buffer
@@ -59,7 +60,7 @@ class MonitorViewModel(
 
     private val anomalyKeys = MutableStateFlow<Set<String>>(emptySet())
     private val _anomalyEvents = MutableSharedFlow<String>(extraBufferCapacity = 4)
-    val anomalyEvents: kotlinx.coroutines.flow.SharedFlow<String> = _anomalyEvents
+    val anomalyEvents: SharedFlow<String> = _anomalyEvents
 
     private val rateThresholdBytesPerSecond = 128 * 1024.0
     private val newHostBytesMinimum = 64 * 1024L
