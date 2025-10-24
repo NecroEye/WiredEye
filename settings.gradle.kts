@@ -39,3 +39,5 @@ include(":core:ai")
 include(":core:common")
 include(":core:nativelib")
 include(":core:resources")
+include(":core:preferences")
+

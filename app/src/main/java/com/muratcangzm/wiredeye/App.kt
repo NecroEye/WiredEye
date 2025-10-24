@@ -5,6 +5,7 @@ import com.muratcangzm.common.di.coroutinesModule
 import com.muratcangzm.data.di.dataModule
 import com.muratcangzm.monitor.di.monitorModule
 import com.muratcangzm.network.di.networkModule
+import com.muratcangzm.preferences.di.prefsModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 
@@ -20,6 +21,7 @@ class App : Application() {
                 dataModule,
                 networkModule,
                 monitorModule,
+                prefsModule,
             )
         }
     }

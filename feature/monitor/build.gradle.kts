@@ -32,6 +32,8 @@ android {
 dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:network"))
+    implementation(project(":core:preferences"))
+    implementation(project(":core:common"))
     implementation(project(":core:resources"))
 
     // Koin

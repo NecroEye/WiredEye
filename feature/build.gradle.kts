@@ -5,7 +5,9 @@ plugins {
 
 android {
     namespace = "com.muratcangzm.feature"
-    compileSdk = ProjectConfig.compileSdk
+    compileSdk {
+        version = release(ProjectConfig.compileSdk)
+    }
 
     defaultConfig {
         minSdk = ProjectConfig.minSdk

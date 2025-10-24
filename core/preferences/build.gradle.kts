@@ -1,10 +1,11 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
-    namespace = "com.muratcangzm.ai"
+    namespace = "com.muratcangzm.preferences"
     compileSdk {
         version = release(ProjectConfig.compileSdk)
     }
@@ -15,6 +16,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -22,22 +29,20 @@ android {
     kotlinOptions {
         compileOptions.sourceCompatibility = JavaVersion.VERSION_21
     }
-    kotlin{
+    kotlin {
         jvmToolchain(21)
     }
 }
 
 dependencies {
-
-    implementation(project(":core:data"))
-    implementation(project(":core:network"))
-
-    implementation(libs.koin.android)
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.bundles.datastore.preferences)
+    implementation(libs.bundles.koin)
 }

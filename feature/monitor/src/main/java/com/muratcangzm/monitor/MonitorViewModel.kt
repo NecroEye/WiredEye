@@ -10,6 +10,7 @@ import com.muratcangzm.monitor.common.UiPacket
 import com.muratcangzm.monitor.common.ViewMode
 import com.muratcangzm.network.engine.EngineState
 import com.muratcangzm.network.engine.PacketCaptureEngine
+import com.muratcangzm.preferences.PreferencesRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -37,7 +38,8 @@ import kotlin.math.min
 class MonitorViewModel(
     private val packetRepository: PacketRepository,
     private val captureEngine: PacketCaptureEngine,
-    private val uidResolver: UidResolver
+    private val uidResolver: UidResolver,
+    private val preferences: PreferencesRepository,
 ) : ViewModel() {
 
     private val filterQuery = MutableStateFlow("")

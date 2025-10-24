@@ -8,7 +8,9 @@ plugins {
 
 android {
     namespace = "com.muratcangzm.wiredeye"
-    compileSdk = ProjectConfig.compileSdk
+    compileSdk {
+        version = release(ProjectConfig.compileSdk)
+    }
 
     defaultConfig {
         applicationId = "com.muratcangzm.wiredeye"
@@ -103,6 +105,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:nativelib"))
     implementation(project(":core:network"))
+    implementation(project(":core:preferences"))
     implementation(project(":core:resources"))
     implementation(project(":feature:monitor"))
 

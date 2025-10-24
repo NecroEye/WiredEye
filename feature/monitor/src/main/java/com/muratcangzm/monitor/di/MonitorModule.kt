@@ -12,6 +12,7 @@ val monitorModule = module {
             packetRepository = get(),
             captureEngine = get(qualifier = EngineQualifiers.Active),
             uidResolver = get<UidResolver>(),
+            preferences = get(),
         )
     }
 }

@@ -70,6 +70,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
@@ -91,8 +92,18 @@ import com.muratcangzm.monitor.utils.humanBytes
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.PI
-import kotlin.math.abs
 import com.muratcangzm.resources.R as Res
+import kotlin.math.abs
+import kotlin.math.min
+
+private val GhostShapeSmall = RoundedCornerShape(10.dp)
+private val GhostShapeMedium = RoundedCornerShape(12.dp)
+private val GhostShapeLarge = RoundedCornerShape(16.dp)
+private val GhostShapeXL = RoundedCornerShape(20.dp)
+private val GhostSurface = Color(0x22101826)
+private val GhostTextDim = Color(0xFF9EB2C0)
+private val GhostTextBright = Color(0xFFDBEAFE)
+private val GhostAccent = Color(0xFF7BD7FF)
 
 @Composable
 fun rememberKeyboardVisible(): State<Boolean> {
@@ -157,7 +168,7 @@ fun GhostLabelAnimated(
             edgeProgress.snapTo(0f)
         }
     }
-    val dimColor = baseColor.copy(alpha = 0.35f)
+    val dimColor = remember(baseColor) { baseColor.copy(alpha = 0.35f) }
     val edgeColor = androidx.compose.ui.graphics.lerp(start = dimColor, stop = revealColor, fraction = edgeProgress.value)
     val annotated = remember(visible, text, dimColor, revealColor, edgeColor) {
         buildAnnotatedString {
@@ -182,71 +193,46 @@ fun GlowingStatChip(
         delay(2500)
         idle = true
     }
-
     val pulse = remember { Animatable(0.65f) }
-
     LaunchedEffect(idle) {
         if (!idle) {
             pulse.snapTo(0f)
             return@LaunchedEffect
         }
         while (true) {
-            pulse.animateTo(
-                targetValue = 1.6f,
-                animationSpec = tween(durationMillis = 625, easing = FastOutSlowInEasing)
-            )
-            pulse.animateTo(
-                targetValue = 0.65f,
-                animationSpec = tween(durationMillis = 625, easing = FastOutSlowInEasing)
-            )
+            pulse.animateTo(1.6f, animationSpec = tween(625, easing = FastOutSlowInEasing))
+            pulse.animateTo(0.65f, animationSpec = tween(625, easing = FastOutSlowInEasing))
         }
     }
-
     val baseSurface = remember { Color(0xFF101826) }
     val shadowColor by rememberUpdatedState(accent)
     val borderStroke = remember(accent) { BorderStroke(1.dp, accent.copy(alpha = 0.15f)) }
-
     val glowAlpha = if (idle) pulse.value else 0f
     val blurRadius = if (idle) 18f * glowAlpha.coerceIn(0f, 1f) else 0f
-
     val onClickStable by rememberUpdatedState(onClick)
-
     Surface(
         tonalElevation = 3.dp,
         color = baseSurface,
-        shape = RoundedCornerShape(16.dp),
+        shape = GhostShapeLarge,
         border = borderStroke,
         modifier = Modifier.then(
             if (onClickStable != null)
                 Modifier
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(GhostShapeLarge)
                     .clickable { onClickStable?.invoke() }
             else Modifier
         )
     ) {
-
-        val textStyle = MaterialTheme.typography.titleLarge.copy(
-            shadow = Shadow(
-                color = shadowColor.copy(alpha = glowAlpha),
-                offset = Offset.Zero,
-                blurRadius = blurRadius
-            )
+        val type = MaterialTheme.typography.titleLarge.copy(
+            shadow = Shadow(color = shadowColor.copy(alpha = glowAlpha), offset = Offset.Zero, blurRadius = blurRadius)
         )
-
-        val staticLabel = remember(label) {
-            movableContentOf {
-                Text(text = label, color = Color(0xFF9EB2C0))
-            }
+        val textStyle = remember(glowAlpha, shadowColor) {
+            type
         }
-
+        val staticLabel = remember(label) { movableContentOf { Text(text = label, color = GhostTextDim) } }
         Column(Modifier.padding(12.dp)) {
             staticLabel()
-            val valueStyle = remember(glowAlpha, shadowColor) { textStyle }
-            Text(
-                text = value,
-                style = valueStyle,
-                color = accent
-            )
+            Text(text = value, style = textStyle, color = accent)
         }
     }
 }
@@ -260,25 +246,25 @@ fun GhostFilterField(
     trailing: (@Composable () -> Unit)? = null,
     leading: (@Composable () -> Unit)? = null
 ) {
-    val accent = Color(0xFF7BD7FF)
-    val shape = RoundedCornerShape(12.dp)
+    val shape = GhostShapeMedium
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val glow by animateFloatAsState(targetValue = if (focused) 1f else 0.6f, animationSpec = tween(220, easing = FastOutSlowInEasing), label = "ghostGlow")
-    val borderBrush = Brush.linearGradient(
-        colors = listOf(
-            Color(0xFF233355).copy(alpha = 0.65f * glow),
-            accent.copy(alpha = 0.55f * glow),
-            Color(0xFF233355).copy(alpha = 0.65f * glow)
+    val borderBrush = remember(glow) {
+        Brush.linearGradient(
+            colors = listOf(
+                Color(0xFF233355).copy(alpha = 0.65f * glow),
+                GhostAccent.copy(alpha = 0.55f * glow),
+                Color(0xFF233355).copy(alpha = 0.65f * glow)
+            )
         )
-    )
-    val baseSurface = Color(0x22101826)
+    }
     Surface(
         modifier = modifier,
         shape = shape,
         tonalElevation = if (focused) 2.dp else 0.dp,
-        color = baseSurface,
-        border = BorderStroke(1.dp, borderBrush)
+        color = GhostSurface,
+        border = remember(borderBrush) { BorderStroke(1.dp, borderBrush) }
     ) {
         OutlinedTextField(
             value = value,
@@ -299,12 +285,12 @@ fun GhostFilterField(
                 unfocusedBorderColor = Color.Transparent,
                 disabledBorderColor = Color.Transparent,
                 errorBorderColor = Color.Transparent,
-                cursorColor = accent,
-                focusedTextColor = Color(0xFFDBEAFE),
+                cursorColor = GhostAccent,
+                focusedTextColor = GhostTextBright,
                 unfocusedTextColor = Color(0xFFC9D6E2),
-                focusedLabelColor = accent,
-                unfocusedLabelColor = Color(0xFF9EB2C0).copy(alpha = 0.72f),
-                focusedPlaceholderColor = Color(0xFF9EB2C0),
+                focusedLabelColor = GhostAccent,
+                unfocusedLabelColor = GhostTextDim.copy(alpha = 0.72f),
+                focusedPlaceholderColor = GhostTextDim,
                 unfocusedPlaceholderColor = Color(0xFF6B7C8F)
             ),
             shape = shape,
@@ -324,7 +310,10 @@ fun Segmented(
 ) {
     val density = LocalDensity.current
     val selectedIndex by remember(options, selected) {
-        derivedStateOf { options.indexOfFirst { it.second == selected }.let { if (it >= 0) it else 0 } }
+        derivedStateOf {
+            val i = options.indexOfFirst { it.second == selected }
+            if (i >= 0) i else 0
+        }
     }
     val xs = remember(options) { mutableStateListOf<Float>().apply { repeat(options.size) { add(0f) } } }
     val ws = remember(options) { mutableStateListOf<Float>().apply { repeat(options.size) { add(0f) } } }
@@ -337,11 +326,11 @@ fun Segmented(
     val xDp by animateDpAsState(targetValue = with(density) { targetX.toDp() }, animationSpec = tween(280, easing = FastOutSlowInEasing), label = "segX")
     val wDp by animateDpAsState(targetValue = with(density) { (if (targetW > 0f) targetW else fallbackW).toDp() }, animationSpec = tween(280, easing = FastOutSlowInEasing), label = "segW")
     val hDp by animateDpAsState(targetValue = with(density) { (if (targetH > 0f) targetH else fallbackH).toDp() }, animationSpec = tween(280, easing = FastOutSlowInEasing), label = "segH")
-    val bg = Color(0xFF0E1624)
-    val indicatorColor = Color(0xFF1B2B45)
+    val bg = remember { Color(0xFF0E1624) }
+    val indicatorColor = remember { Color(0xFF1B2B45) }
     Box(
         Modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(GhostShapeMedium)
             .background(bg)
             .padding(3.dp)
     ) {
@@ -358,6 +347,7 @@ fun Segmented(
             val onSelectState by rememberUpdatedState(onSelect)
             options.forEachIndexed { idx, (label, value) ->
                 val active = idx == selectedIndex
+                val labelColor = if (active) GhostAccent else GhostTextDim
                 Box(
                     modifier = Modifier
                         .onGloballyPositioned { c ->
@@ -372,7 +362,7 @@ fun Segmented(
                         .clickable { onSelectState(value) }
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
-                    Text(text = label, color = if (active) Color(0xFF7BD7FF) else Color(0xFF9EB2C0))
+                    Text(text = label, color = labelColor)
                 }
             }
         }
@@ -387,33 +377,18 @@ fun GhostDangerButton(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(10.dp)
-    val alpha by animateFloatAsState(
-        targetValue = if (enabled) 1f else 0.55f,
-        animationSpec = tween(180, easing = FastOutSlowInEasing),
-        label = "danger-alpha"
-    )
-    val borderBrush = if (enabled) {
-        Brush.linearGradient(
-            listOf(
-                Color(0xFF40203A).copy(alpha = 0.95f * alpha),
-                Color(0xFF9A4D76).copy(alpha = 0.95f * alpha),
-                Color(0xFF40203A).copy(alpha = 0.95f * alpha)
-            )
-        )
-    } else {
-        Brush.linearGradient(
-            listOf(
-                Color(0xFF2A2F3A).copy(alpha = 0.7f * alpha),
-                Color(0xFF3A4254).copy(alpha = 0.7f * alpha),
-                Color(0xFF2A2F3A).copy(alpha = 0.7f * alpha)
-            )
-        )
+    val shape = GhostShapeSmall
+    val alpha by animateFloatAsState(targetValue = if (enabled) 1f else 0.55f, animationSpec = tween(180, easing = FastOutSlowInEasing), label = "danger-alpha")
+    val enabledBrush = remember {
+        Brush.linearGradient(listOf(Color(0xFF40203A).copy(alpha = 0.95f), Color(0xFF9A4D76).copy(alpha = 0.95f), Color(0xFF40203A).copy(alpha = 0.95f)))
+    }
+    val disabledBrush = remember {
+        Brush.linearGradient(listOf(Color(0xFF2A2F3A).copy(alpha = 0.7f), Color(0xFF3A4254).copy(alpha = 0.7f), Color(0xFF2A2F3A).copy(alpha = 0.7f)))
     }
     Surface(
         shape = shape,
-        color = Color(0x22101826),
-        border = BorderStroke(1.dp, borderBrush),
+        color = GhostSurface,
+        border = remember(enabled) { BorderStroke(1.dp, if (enabled) enabledBrush else disabledBrush) },
         modifier = modifier
             .clip(shape)
             .clickable(enabled = enabled) { onClick() }
@@ -426,10 +401,7 @@ fun GhostDangerButton(
                 .alpha(alpha)
         ) {
             Text(text = icon, color = Color.Unspecified, fontSize = 16.sp)
-            Text(
-                text = text,
-                color = if (enabled) Color(0xFFDBEAFE) else Color(0xFF9EB2C0).copy(alpha = 0.7f)
-            )
+            Text(text = text, color = if (enabled) GhostTextBright else GhostTextDim.copy(alpha = 0.7f))
         }
     }
 }
@@ -443,24 +415,23 @@ fun GhostTonalButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val accent = Color(0xFF7BD7FF)
-    val shape = RoundedCornerShape(10.dp)
-    val glow by animateFloatAsState(
-        targetValue = if (active) 1f else 0.55f,
-        animationSpec = tween(180, easing = FastOutSlowInEasing),
-        label = "ghost-btn-glow"
-    )
-    val baseBorder = Brush.linearGradient(
-        listOf(
-            Color(0xFF233355).copy(alpha = 0.65f * glow),
-            accent.copy(alpha = 0.55f * glow),
-            Color(0xFF233355).copy(alpha = 0.65f * glow)
+    val shape = GhostShapeSmall
+    val glow by animateFloatAsState(targetValue = if (active) 1f else 0.55f, animationSpec = tween(180, easing = FastOutSlowInEasing), label = "ghost-btn-glow")
+    val baseBorder = remember(glow) {
+        Brush.linearGradient(
+            listOf(
+                Color(0xFF233355).copy(alpha = 0.65f * glow),
+                GhostAccent.copy(alpha = 0.55f * glow),
+                Color(0xFF233355).copy(alpha = 0.65f * glow)
+            )
         )
-    )
-    val triple = when (mode) {
-        SpeedMode.ECO -> Triple(3200, Color(0xFF30E3A2).copy(alpha = 0.65f), 0.18f)
-        SpeedMode.FAST -> Triple(1200, Color(0xFFFFC107).copy(alpha = 0.70f), 0.24f)
-        SpeedMode.TURBO -> Triple(700, Color(0xFFFF6B6B).copy(alpha = 0.75f), 0.30f)
+    }
+    val triple = remember(mode) {
+        when (mode) {
+            SpeedMode.ECO -> Triple(3200, Color(0xFF30E3A2).copy(alpha = 0.65f), 0.18f)
+            SpeedMode.FAST -> Triple(1200, Color(0xFFFFC107).copy(alpha = 0.70f), 0.24f)
+            SpeedMode.TURBO -> Triple(700, Color(0xFFFF6B6B).copy(alpha = 0.75f), 0.30f)
+        }
     }
     val durationMs = triple.first
     val highlightColor = triple.second
@@ -474,8 +445,8 @@ fun GhostTonalButton(
     )
     Surface(
         shape = shape,
-        color = Color(0x22101826),
-        border = BorderStroke(1.dp, baseBorder),
+        color = GhostSurface,
+        border = remember(baseBorder) { BorderStroke(1.dp, baseBorder) },
         modifier = modifier
             .clip(shape)
             .clickable { onClick() }
@@ -486,19 +457,19 @@ fun GhostTonalButton(
                 val top = inset
                 val right = size.width - inset
                 val bottom = size.height - inset
-                val r = 10.dp.toPx().coerceAtMost(minOf((right - left) / 2f, (bottom - top) / 2f))
-                val LedgeTop = (right - left) - 2f * r
-                val LedgeRight = (bottom - top) - 2f * r
-                val LedgeBottom = LedgeTop
-                val LedgeLeft = LedgeRight
-                val Lcorner = (PI.toFloat() / 2f) * r
-                val P = LedgeTop + Lcorner + LedgeRight + Lcorner + LedgeBottom + Lcorner + LedgeLeft + Lcorner
-                val bandLen = (P * bandFraction).coerceAtLeast(12.dp.toPx())
+                val r = 10.dp.toPx().coerceAtMost(min((right - left) / 2f, (bottom - top) / 2f))
+                val ledgeTop = (right - left) - 2f * r
+                val ledgeRight = (bottom - top) - 2f * r
+                val ledgeBottom = ledgeTop
+                val ledgeLeft = ledgeRight
+                val lcorner = (PI.toFloat() / 2f) * r
+                val p = ledgeTop + lcorner + ledgeRight + lcorner + ledgeBottom + lcorner + ledgeLeft + lcorner
+                val bandLen = (p * bandFraction).coerceAtLeast(12.dp.toPx())
                 fun drawPartial(a: Float, b: Float) {
                     var start = a
                     var end = b
                     var cursor = 0f
-                    val tLen = LedgeTop
+                    val tLen = ledgeTop
                     if (end > cursor) {
                         val s = maxOf(0f, start - cursor)
                         val e = maxOf(0f, minOf(end - cursor, tLen))
@@ -506,11 +477,11 @@ fun GhostTonalButton(
                             val y = top
                             val x1 = left + r + s
                             val x2 = left + r + e
-                            drawLine(color = highlightColor, start = Offset(x1, y), end = Offset(x2, y), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            drawLine(color = highlightColor, start = Offset(x1, y), end = Offset(x2, y), strokeWidth = stroke, cap = StrokeCap.Round)
                         }
                     }
                     cursor += tLen
-                    val trLen = Lcorner
+                    val trLen = lcorner
                     if (end > cursor) {
                         val s = maxOf(0f, start - cursor)
                         val e = maxOf(0f, minOf(end - cursor, trLen))
@@ -526,12 +497,12 @@ fun GhostTonalButton(
                                 useCenter = false,
                                 topLeft = Offset(rectLeft, rectTop),
                                 size = androidx.compose.ui.geometry.Size(2f * r, 2f * r),
-                                style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                style = Stroke(width = stroke, cap = StrokeCap.Round)
                             )
                         }
                     }
                     cursor += trLen
-                    val rLen = LedgeRight
+                    val rLen = ledgeRight
                     if (end > cursor) {
                         val s = maxOf(0f, start - cursor)
                         val e = maxOf(0f, minOf(end - cursor, rLen))
@@ -539,11 +510,11 @@ fun GhostTonalButton(
                             val x = right
                             val y1 = top + r + s
                             val y2 = top + r + e
-                            drawLine(color = highlightColor, start = Offset(x, y1), end = Offset(x, y2), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            drawLine(color = highlightColor, start = Offset(x, y1), end = Offset(x, y2), strokeWidth = stroke, cap = StrokeCap.Round)
                         }
                     }
                     cursor += rLen
-                    val brLen = Lcorner
+                    val brLen = lcorner
                     if (end > cursor) {
                         val s = maxOf(0f, start - cursor)
                         val e = maxOf(0f, minOf(end - cursor, brLen))
@@ -559,12 +530,12 @@ fun GhostTonalButton(
                                 useCenter = false,
                                 topLeft = Offset(rectLeft, rectTop),
                                 size = androidx.compose.ui.geometry.Size(2f * r, 2f * r),
-                                style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                style = Stroke(width = stroke, cap = StrokeCap.Round)
                             )
                         }
                     }
                     cursor += brLen
-                    val bLen = LedgeBottom
+                    val bLen = ledgeBottom
                     if (end > cursor) {
                         val s = maxOf(0f, start - cursor)
                         val e = maxOf(0f, minOf(end - cursor, bLen))
@@ -572,11 +543,11 @@ fun GhostTonalButton(
                             val y = bottom
                             val x1 = right - r - s
                             val x2 = right - r - e
-                            drawLine(color = highlightColor, start = Offset(x1, y), end = Offset(x2, y), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            drawLine(color = highlightColor, start = Offset(x1, y), end = Offset(x2, y), strokeWidth = stroke, cap = StrokeCap.Round)
                         }
                     }
                     cursor += bLen
-                    val blLen = Lcorner
+                    val blLen = lcorner
                     if (end > cursor) {
                         val s = maxOf(0f, start - cursor)
                         val e = maxOf(0f, minOf(end - cursor, blLen))
@@ -592,12 +563,12 @@ fun GhostTonalButton(
                                 useCenter = false,
                                 topLeft = Offset(rectLeft, rectTop),
                                 size = androidx.compose.ui.geometry.Size(2f * r, 2f * r),
-                                style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                style = Stroke(width = stroke, cap = StrokeCap.Round)
                             )
                         }
                     }
                     cursor += blLen
-                    val lLen = LedgeLeft
+                    val lLen = ledgeLeft
                     if (end > cursor) {
                         val s = maxOf(0f, start - cursor)
                         val e = maxOf(0f, minOf(end - cursor, lLen))
@@ -605,11 +576,11 @@ fun GhostTonalButton(
                             val x = left
                             val y1 = bottom - r - s
                             val y2 = bottom - r - e
-                            drawLine(color = highlightColor, start = Offset(x, y1), end = Offset(x, y2), strokeWidth = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                            drawLine(color = highlightColor, start = Offset(x, y1), end = Offset(x, y2), strokeWidth = stroke, cap = StrokeCap.Round)
                         }
                     }
                     cursor += lLen
-                    val tlLen = Lcorner
+                    val tlLen = lcorner
                     if (end > cursor) {
                         val s = maxOf(0f, start - cursor)
                         val e = maxOf(0f, minOf(end - cursor, tlLen))
@@ -625,64 +596,59 @@ fun GhostTonalButton(
                                 useCenter = false,
                                 topLeft = Offset(rectLeft, rectTop),
                                 size = androidx.compose.ui.geometry.Size(2f * r, 2f * r),
-                                style = Stroke(width = stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                style = Stroke(width = stroke, cap = StrokeCap.Round)
                             )
                         }
                     }
                 }
 
                 fun drawSegment(s0: Float, s1: Float) {
-                    val P2 = (LedgeTop + Lcorner + LedgeRight + Lcorner + LedgeBottom + Lcorner + LedgeLeft + Lcorner)
-                    if (s1 <= P2) drawPartial(s0, s1) else {
-                        drawPartial(s0, P2)
-                        drawPartial(0f, s1 - P2)
+                    val p2 = ledgeTop + lcorner + ledgeRight + lcorner + ledgeBottom + lcorner + ledgeLeft + lcorner
+                    if (s1 <= p2) drawPartial(s0, s1) else {
+                        drawPartial(s0, p2)
+                        drawPartial(0f, s1 - p2)
                     }
                 }
 
-                val startS = phase * P
+                val startS = phase * p
                 val endS = startS + bandLen
                 drawSegment(startS, endS)
             }
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-        ) {
-            if (icon != null) Text(icon, color = accent.copy(alpha = 0.9f))
-            Text(text, color = Color(0xFF9EB2C0))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            if (icon != null) Text(icon, color = GhostAccent.copy(alpha = 0.9f))
+            Text(text, color = GhostTextDim)
         }
     }
 }
 
 @Composable
 fun GhostPill(text: String, selected: Boolean, onClick: () -> Unit) {
-    val accent = Color(0xFF7BD7FF)
     val shape = RoundedCornerShape(20.dp)
     val alpha by animateFloatAsState(if (selected) 1f else 0.55f, tween(160), label = "pill-alpha")
+    val border = remember(alpha) {
+        Brush.linearGradient(
+            listOf(
+                Color(0xFF233355).copy(alpha = 0.65f * alpha),
+                GhostAccent.copy(alpha = 0.55f * alpha),
+                Color(0xFF233355).copy(alpha = 0.65f * alpha)
+            )
+        )
+    }
     Surface(
         shape = shape,
-        color = Color(0x22101826),
-        border = BorderStroke(
-            1.dp,
-            Brush.linearGradient(
-                listOf(
-                    Color(0xFF233355).copy(alpha = 0.65f * alpha),
-                    accent.copy(alpha = 0.55f * alpha),
-                    Color(0xFF233355).copy(alpha = 0.65f * alpha)
-                )
-            )
-        ),
+        color = GhostSurface,
+        border = remember(border) { BorderStroke(1.dp, border) },
         modifier = Modifier
             .clip(shape)
             .clickable { onClick() }
     ) {
-        Text(text = text, color = if (selected) accent else Color(0xFF9EB2C0), modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+        Text(text = text, color = if (selected) GhostAccent else GhostTextDim, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
     }
 }
 
 @Composable
-fun LiveDotGhost(running: Boolean, modifier: Modifier = Modifier, color: Color = Color(0xFF7BD7FF)) {
+fun LiveDotGhost(running: Boolean, modifier: Modifier = Modifier, color: Color = GhostAccent) {
     val inf = rememberInfiniteTransition(label = "live-dot")
     val pulse by inf.animateFloat(
         initialValue = 0f,
@@ -712,12 +678,9 @@ fun FilterBar(
     val focusManager = LocalFocusManager.current
     val keyboardVisible by rememberKeyboardVisible()
     LaunchedEffect(keyboardVisible) { if (!keyboardVisible) focusManager.clearFocus(force = false) }
-
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-    ) {
+    Column(Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 12.dp)) {
         GhostFilterField(
             value = text,
             onValueChange = onText,
@@ -731,7 +694,9 @@ fun FilterBar(
         )
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(Res.string.min_bytes), color = Color(0xFF9EB2C0), modifier = Modifier.padding(end = 8.dp))
+            Text(stringResource(Res.string.min_bytes), color = GhostTextDim, modifier = Modifier
+                .alpha(0.9f)
+                .padding(end = 8.dp))
             val maxForSlider = totalBytes.coerceAtLeast(0L)
             val clampedValue = minBytes.coerceIn(0L, maxForSlider)
             Slider(
@@ -742,7 +707,7 @@ fun FilterBar(
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(8.dp))
-            Text(humanBytes(clampedValue), color = Color(0xFF7BD7FF))
+            Text(humanBytes(clampedValue), color = GhostAccent)
         }
     }
 }
@@ -759,18 +724,12 @@ fun TechStatsBar(
     onChipClick: (StatKind) -> Unit
 ) {
     var speedExpanded by rememberSaveable { mutableStateOf(false) }
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    Column(Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             GlowingStatChip(stringResource(Res.string.chip_total), humanBytes(state.totalBytes), Color(0xFF30E3A2)) { onChipClick(StatKind.Total) }
-            GlowingStatChip(stringResource(Res.string.chip_apps), state.uniqueApps.toString(), Color(0xFF7BD7FF)) { onChipClick(StatKind.Apps) }
+            GlowingStatChip(stringResource(Res.string.chip_apps), state.uniqueApps.toString(), GhostAccent) { onChipClick(StatKind.Apps) }
             GlowingStatChip(stringResource(Res.string.chip_pps), String.format("%.1f", state.pps), Color(0xFFFFA6E7)) { onChipClick(StatKind.Pps) }
             GlowingStatChip(stringResource(Res.string.chip_kbs), String.format("%.1f", state.throughputKbs), Color(0xFFBCE784)) { onChipClick(StatKind.Kbs) }
         }
@@ -781,7 +740,7 @@ fun TechStatsBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            item { Text(stringResource(Res.string.label_window), color = Color(0xFF9EB2C0), modifier = Modifier.alpha(0.9f)) }
+            item { Text(stringResource(Res.string.label_window), color = GhostTextDim, modifier = Modifier.alpha(0.9f)) }
             item {
                 Segmented(
                     options = listOf(
@@ -842,13 +801,13 @@ fun SpeedModePanel(
     onSelect: (SpeedMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val border = Brush.linearGradient(listOf(Color(0xFF1B2B45), Color(0xFF20304F), Color(0xFF1B2B45)))
+    val border = remember { Brush.linearGradient(listOf(Color(0xFF1B2B45), Color(0xFF20304F), Color(0xFF1B2B45))) }
     Surface(
         modifier = modifier,
         color = Color(0x16101826),
         tonalElevation = 2.dp,
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, border)
+        shape = GhostShapeMedium,
+        border = remember(border) { BorderStroke(1.dp, border) }
     ) {
         Row(
             Modifier

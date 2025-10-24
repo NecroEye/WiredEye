@@ -93,14 +93,17 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
     val snackBarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var isStopping by rememberSaveable { mutableStateOf(false) }
+
     val vpnLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == Activity.RESULT_OK) vm.onEvent(MonitorUiEvent.StartEngine)
         else scope.launch { snackBarHost.showSnackbar(context.getString(com.muratcangzm.resources.R.string.vpn_denied)) }
     }
+
     fun startWithVpnConsent() {
         val i = VpnService.prepare(context)
         if (i != null) vpnLauncher.launch(i) else vm.onEvent(MonitorUiEvent.StartEngine)
     }
+
     DisposableEffect(Unit) {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         var lastType: String? = null
@@ -125,18 +128,22 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
         onDispose { runCatching { cm.unregisterNetworkCallback(cb) } }
     }
     LaunchedEffect(state.isEngineRunning) { if (!state.isEngineRunning) isStopping = false }
+
     LaunchedEffect(Unit) {
         vm.anomalyEvents.collect { msg ->
             snackBarHost.showSnackbar(msg)
         }
     }
+
     LaunchedEffect(state.isEngineRunning, state.throughputKbs, state.pps, state.speedMode, state.totalBytes) {
         updateRunningNotification(context, state.isEngineRunning, state.throughputKbs, state.pps, state.speedMode, state.totalBytes)
     }
+
     var statDialog by rememberSaveable { mutableStateOf<StatKind?>(null) }
     val blurRadius = if (statDialog != null) 16.dp else 0.dp
     val accent = remember { Color(0xFF7BD7FF) }
     val bg = remember { Brush.linearGradient(listOf(Color(0xFF0E141B), Color(0xFF0B1022), Color(0xFF0E141B))) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -227,7 +234,9 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                     onClearAll = { vm.onEvent(MonitorUiEvent.ClearNow) },
                     onChipClick = { kind -> statDialog = kind }
                 )
+
                 Spacer(Modifier.height(8.dp))
+
                 FilterBar(
                     text = state.filterText,
                     minBytes = state.minBytes,
@@ -236,9 +245,12 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                     onClear = { vm.onEvent(MonitorUiEvent.ClearFilter) },
                     onMinBytes = { vm.onEvent(MonitorUiEvent.SetMinBytes(it)) }
                 )
+
                 Spacer(Modifier.height(8.dp))
+
                 val adapter = rememberUiPacketAdapter()
                 LaunchedEffect(state.items) { adapter.submit(state.items) }
+
                 PacketList(
                     isRunning = state.isEngineRunning,
                     adapterItems = adapter.items,
@@ -258,6 +270,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                     modifier = Modifier.weight(1f)
                 )
             }
+
             if (statDialog != null) {
                 Box(
                     Modifier
@@ -268,6 +281,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                             interactionSource = remember { MutableInteractionSource() }
                         ) { statDialog = null }
                 )
+
                 Box(
                     Modifier
                         .align(Alignment.Center)
@@ -290,6 +304,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
             }
         }
     }
+
     DisposableEffect(Unit) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
