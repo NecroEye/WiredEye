@@ -92,9 +92,9 @@ import com.muratcangzm.monitor.utils.humanBytes
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.PI
-import com.muratcangzm.resources.R as Res
 import kotlin.math.abs
 import kotlin.math.min
+import com.muratcangzm.resources.R as Res
 
 private val GhostShapeSmall = RoundedCornerShape(10.dp)
 private val GhostShapeMedium = RoundedCornerShape(12.dp)
@@ -463,7 +463,8 @@ fun GhostTonalButton(
                 val ledgeBottom = ledgeTop
                 val ledgeLeft = ledgeRight
                 val lcorner = (PI.toFloat() / 2f) * r
-                val p = ledgeTop + lcorner + ledgeRight + lcorner + ledgeBottom + lcorner + ledgeLeft + lcorner
+                val p =
+                    ledgeTop + lcorner + ledgeRight + lcorner + ledgeBottom + lcorner + ledgeLeft + lcorner
                 val bandLen = (p * bandFraction).coerceAtLeast(12.dp.toPx())
                 fun drawPartial(a: Float, b: Float) {
                     var start = a
@@ -477,7 +478,13 @@ fun GhostTonalButton(
                             val y = top
                             val x1 = left + r + s
                             val x2 = left + r + e
-                            drawLine(color = highlightColor, start = Offset(x1, y), end = Offset(x2, y), strokeWidth = stroke, cap = StrokeCap.Round)
+                            drawLine(
+                                color = highlightColor,
+                                start = Offset(x1, y),
+                                end = Offset(x2, y),
+                                strokeWidth = stroke,
+                                cap = StrokeCap.Round
+                            )
                         }
                     }
                     cursor += tLen
@@ -510,7 +517,13 @@ fun GhostTonalButton(
                             val x = right
                             val y1 = top + r + s
                             val y2 = top + r + e
-                            drawLine(color = highlightColor, start = Offset(x, y1), end = Offset(x, y2), strokeWidth = stroke, cap = StrokeCap.Round)
+                            drawLine(
+                                color = highlightColor,
+                                start = Offset(x, y1),
+                                end = Offset(x, y2),
+                                strokeWidth = stroke,
+                                cap = StrokeCap.Round
+                            )
                         }
                     }
                     cursor += rLen
@@ -543,7 +556,13 @@ fun GhostTonalButton(
                             val y = bottom
                             val x1 = right - r - s
                             val x2 = right - r - e
-                            drawLine(color = highlightColor, start = Offset(x1, y), end = Offset(x2, y), strokeWidth = stroke, cap = StrokeCap.Round)
+                            drawLine(
+                                color = highlightColor,
+                                start = Offset(x1, y),
+                                end = Offset(x2, y),
+                                strokeWidth = stroke,
+                                cap = StrokeCap.Round
+                            )
                         }
                     }
                     cursor += bLen
@@ -576,7 +595,13 @@ fun GhostTonalButton(
                             val x = left
                             val y1 = bottom - r - s
                             val y2 = bottom - r - e
-                            drawLine(color = highlightColor, start = Offset(x, y1), end = Offset(x, y2), strokeWidth = stroke, cap = StrokeCap.Round)
+                            drawLine(
+                                color = highlightColor,
+                                start = Offset(x, y1),
+                                end = Offset(x, y2),
+                                strokeWidth = stroke,
+                                cap = StrokeCap.Round
+                            )
                         }
                     }
                     cursor += lLen
@@ -603,7 +628,8 @@ fun GhostTonalButton(
                 }
 
                 fun drawSegment(s0: Float, s1: Float) {
-                    val p2 = ledgeTop + lcorner + ledgeRight + lcorner + ledgeBottom + lcorner + ledgeLeft + lcorner
+                    val p2 =
+                        ledgeTop + lcorner + ledgeRight + lcorner + ledgeBottom + lcorner + ledgeLeft + lcorner
                     if (s1 <= p2) drawPartial(s0, s1) else {
                         drawPartial(s0, p2)
                         drawPartial(0f, s1 - p2)
@@ -706,7 +732,9 @@ fun FilterBar(
                 enabled = totalBytes > 0L,
                 modifier = Modifier.weight(1f)
             )
+
             Spacer(Modifier.width(8.dp))
+
             Text(humanBytes(clampedValue), color = GhostAccent)
         }
     }
@@ -733,7 +761,9 @@ fun TechStatsBar(
             GlowingStatChip(stringResource(Res.string.chip_pps), String.format("%.1f", state.pps), Color(0xFFFFA6E7)) { onChipClick(StatKind.Pps) }
             GlowingStatChip(stringResource(Res.string.chip_kbs), String.format("%.1f", state.throughputKbs), Color(0xFFBCE784)) { onChipClick(StatKind.Kbs) }
         }
+
         Spacer(Modifier.height(8.dp))
+
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 0.dp),

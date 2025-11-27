@@ -83,7 +83,7 @@ class MonitorViewModel(
                 packetRepository.recordPacketMeta(meta)
                 detectHighThroughput(meta)
                 detectNewHost(meta)
-                totalBytesAllTime.value = totalBytesAllTime.value + meta.bytes
+                totalBytesAllTime.value += meta.bytes
             }
         }
     }

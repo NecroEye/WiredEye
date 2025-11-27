@@ -108,14 +108,18 @@ dependencies {
     implementation(project(":core:preferences"))
     implementation(project(":core:resources"))
     implementation(project(":feature:monitor"))
+    implementation(project(":feature:details"))
 
     // --- DI + WorkManager ---
-    implementation(libs.koin.android)
     implementation(libs.koin.androidx.workmanager)
     implementation(libs.androidx.work.runtime.ktx)
 
-    // Nav
+    // Timber
+    implementation(libs.timber)
+
+    // Bundle
     implementation(libs.bundles.navigation)
+    implementation(libs.bundles.koin)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

@@ -58,12 +58,12 @@ import androidx.compose.ui.layout.FirstBaseline
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
-import com.muratcangzm.resources.R as Res
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.muratcangzm.common.HomeViewModel
 import com.muratcangzm.monitor.model.ACTION_STOP_ENGINE
 import com.muratcangzm.monitor.model.NOTIFICATION_ID
 import com.muratcangzm.monitor.model.StatKind
@@ -82,26 +82,33 @@ import com.muratcangzm.network.vpn.DnsSnifferVpnService
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import java.util.Locale
+import com.muratcangzm.resources.R as Res
 
+@Suppress("ParamsComparedByRef")
 @androidx.compose.material3.ExperimentalMaterial3Api
 @SuppressLint("MissingPermission")
 @Composable
-fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
-    val state by vm.uiState.collectAsStateWithLifecycle()
+fun WiredEyeScreen(
+    homeViewModel: HomeViewModel,
+    monitorViewModel: MonitorViewModel = koinViewModel(),
+    ) {
+
+    val state by monitorViewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val snackBarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var isStopping by rememberSaveable { mutableStateOf(false) }
 
-    val vpnLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        if (res.resultCode == Activity.RESULT_OK) vm.onEvent(MonitorUiEvent.StartEngine)
-        else scope.launch { snackBarHost.showSnackbar(context.getString(com.muratcangzm.resources.R.string.vpn_denied)) }
-    }
+    val vpnLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+            if (res.resultCode == Activity.RESULT_OK) monitorViewModel.onEvent(MonitorUiEvent.StartEngine)
+            else scope.launch { snackBarHost.showSnackbar(context.getString(com.muratcangzm.resources.R.string.vpn_denied)) }
+        }
 
     fun startWithVpnConsent() {
         val i = VpnService.prepare(context)
-        if (i != null) vpnLauncher.launch(i) else vm.onEvent(MonitorUiEvent.StartEngine)
+        if (i != null) vpnLauncher.launch(i) else monitorViewModel.onEvent(MonitorUiEvent.StartEngine)
     }
 
     DisposableEffect(Unit) {
@@ -117,10 +124,14 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                 if (t != lastType) {
                     lastType = t
                     scope.launch {
-                        snackBarHost.showSnackbar(context.getString(com.muratcangzm.resources.R.string.network_changed_snackbar, t)
+                        snackBarHost.showSnackbar(
+                            context.getString(
+                                com.muratcangzm.resources.R.string.network_changed_snackbar,
+                                t
+                            )
                         )
                     }
-                    vm.onEvent(MonitorUiEvent.ClearNow)
+                    monitorViewModel.onEvent(MonitorUiEvent.ClearNow)
                 }
             }
         }
@@ -130,19 +141,40 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
     LaunchedEffect(state.isEngineRunning) { if (!state.isEngineRunning) isStopping = false }
 
     LaunchedEffect(Unit) {
-        vm.anomalyEvents.collect { msg ->
+        monitorViewModel.anomalyEvents.collect { msg ->
             snackBarHost.showSnackbar(msg)
         }
     }
 
-    LaunchedEffect(state.isEngineRunning, state.throughputKbs, state.pps, state.speedMode, state.totalBytes) {
-        updateRunningNotification(context, state.isEngineRunning, state.throughputKbs, state.pps, state.speedMode, state.totalBytes)
+    LaunchedEffect(
+        state.isEngineRunning,
+        state.throughputKbs,
+        state.pps,
+        state.speedMode,
+        state.totalBytes
+    ) {
+        updateRunningNotification(
+            context,
+            state.isEngineRunning,
+            state.throughputKbs,
+            state.pps,
+            state.speedMode,
+            state.totalBytes
+        )
     }
 
     var statDialog by rememberSaveable { mutableStateOf<StatKind?>(null) }
     val blurRadius = if (statDialog != null) 16.dp else 0.dp
     val accent = remember { Color(0xFF7BD7FF) }
-    val bg = remember { Brush.linearGradient(listOf(Color(0xFF0E141B), Color(0xFF0B1022), Color(0xFF0E141B))) }
+    val bg = remember {
+        Brush.linearGradient(
+            listOf(
+                Color(0xFF0E141B),
+                Color(0xFF0B1022),
+                Color(0xFF0E141B)
+            )
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -186,7 +218,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                                     onClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         isStopping = true
-                                        vm.onEvent(MonitorUiEvent.StopEngine)
+                                        monitorViewModel.onEvent(MonitorUiEvent.StopEngine)
                                     }
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -198,18 +230,22 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                                     }
                                 }
                             }
+
                             TopAction.Settling -> {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp).padding(end = 10.dp),
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .padding(end = 10.dp),
                                     color = accent, strokeWidth = 2.dp
                                 )
                             }
+
                             TopAction.Idle -> {
                                 TextButton(onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     isStopping = false
                                     startWithVpnConsent()
-                                }) { Text(stringResource(Res.string.action_start))}
+                                }) { Text(stringResource(Res.string.action_start)) }
                             }
                         }
                     }
@@ -224,14 +260,22 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                 .background(bg)
                 .padding(paddingValues)
         ) {
-            Column(Modifier.fillMaxSize().blur(blurRadius)) {
+            Column(Modifier
+                .fillMaxSize()
+                .blur(blurRadius)) {
                 TechStatsBar(
                     state = state,
-                    onWindowChange = { vm.onEvent(MonitorUiEvent.SetWindow(it)) },
-                    onSpeedChange = { mode -> vm.onEvent(MonitorUiEvent.SetSpeed(mode)) },
+                    onWindowChange = { monitorViewModel.onEvent(MonitorUiEvent.SetWindow(it)) },
+                    onSpeedChange = { mode -> monitorViewModel.onEvent(MonitorUiEvent.SetSpeed(mode)) },
                     viewMode = state.viewMode,
-                    onViewModeChange = { mode -> vm.onEvent(MonitorUiEvent.SetViewMode(mode)) },
-                    onClearAll = { vm.onEvent(MonitorUiEvent.ClearNow) },
+                    onViewModeChange = { mode ->
+                        monitorViewModel.onEvent(
+                            MonitorUiEvent.SetViewMode(
+                                mode
+                            )
+                        )
+                    },
+                    onClearAll = { monitorViewModel.onEvent(MonitorUiEvent.ClearNow) },
                     onChipClick = { kind -> statDialog = kind }
                 )
 
@@ -241,9 +285,9 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                     text = state.filterText,
                     minBytes = state.minBytes,
                     totalBytes = state.totalBytes,
-                    onText = { vm.onEvent(MonitorUiEvent.SetFilter(it)) },
-                    onClear = { vm.onEvent(MonitorUiEvent.ClearFilter) },
-                    onMinBytes = { vm.onEvent(MonitorUiEvent.SetMinBytes(it)) }
+                    onText = { monitorViewModel.onEvent(MonitorUiEvent.SetFilter(it)) },
+                    onClear = { monitorViewModel.onEvent(MonitorUiEvent.ClearFilter) },
+                    onMinBytes = { monitorViewModel.onEvent(MonitorUiEvent.SetMinBytes(it)) }
                 )
 
                 Spacer(Modifier.height(8.dp))
@@ -252,6 +296,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                 LaunchedEffect(state.items) { adapter.submit(state.items) }
 
                 PacketList(
+                    modifier = Modifier.weight(1f),
                     isRunning = state.isEngineRunning,
                     adapterItems = adapter.items,
                     rawItems = state.items,
@@ -259,15 +304,24 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                     highlightedKeys = state.anomalyKeys,
                     onPin = { uid ->
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        vm.onEvent(MonitorUiEvent.TogglePin(uid))
+                        monitorViewModel.onEvent(MonitorUiEvent.TogglePin(uid))
                     },
-                    onShareWindowJson = { shareWindowJson(context, state.items, snackBarHost, scope) },
+                    onShareWindowJson = {
+                        shareWindowJson(
+                            context,
+                            state.items,
+                            snackBarHost,
+                            scope
+                        )
+                    },
                     onCopied = { what ->
                         scope.launch { snackBarHost.showSnackbar("$what copied") }
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     },
-                    vm = vm,
-                    modifier = Modifier.weight(1f)
+                    monitorViewModel = monitorViewModel,
+                    onNavigateDetails = {
+                        homeViewModel.openDetails()
+                    }
                 )
             }
 
@@ -293,8 +347,18 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
                             when (statDialog) {
                                 StatKind.Total -> humanBytes(state.totalBytes)
                                 StatKind.Apps -> state.uniqueApps.toString()
-                                StatKind.Pps -> String.format(Locale.getDefault(), "%.1f", state.pps)
-                                StatKind.Kbs -> String.format(Locale.getDefault(), "%.1f", state.throughputKbs)
+                                StatKind.Pps -> String.format(
+                                    Locale.getDefault(),
+                                    "%.1f",
+                                    state.pps
+                                )
+
+                                StatKind.Kbs -> String.format(
+                                    Locale.getDefault(),
+                                    "%.1f",
+                                    state.throughputKbs
+                                )
+
                                 null -> ""
                             }
                         },
@@ -309,7 +373,7 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (intent.action == ACTION_STOP_ENGINE) {
-                    vm.onEvent(MonitorUiEvent.StopEngine)
+                    monitorViewModel.onEvent(MonitorUiEvent.StopEngine)
                     context.startService(
                         Intent(context, DnsSnifferVpnService::class.java)
                             .setAction(DnsSnifferVpnService.ACTION_STOP)
@@ -324,7 +388,12 @@ fun WiredEyeScreen(vm: MonitorViewModel = koinViewModel()) {
             context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("DEPRECATION")
-            ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+            ContextCompat.registerReceiver(
+                context,
+                receiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
         }
         onDispose { runCatching { context.unregisterReceiver(receiver) } }
     }

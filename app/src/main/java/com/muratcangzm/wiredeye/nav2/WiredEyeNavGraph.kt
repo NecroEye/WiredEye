@@ -1,4 +1,4 @@
-package com.muratcangzm.wiredeye.nav
+package com.muratcangzm.wiredeye.nav2
 
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -11,14 +11,18 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import com.muratcangzm.common.nav.Screen
+import com.muratcangzm.common.HomeViewModel
+import com.muratcangzm.details.DetailsScreen
 import com.muratcangzm.monitor.WiredEyeScreen
+import com.muratcangzm.common.nav3.Screens as Screen
 
+@Suppress("ParamsComparedByRef")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
 @Composable
-fun NavigationRoot(
+fun WiredEyeNavGraph(
     modifier: Modifier = Modifier,
     navController: NavHostController,
+    homeViewModel: HomeViewModel,
 ) {
     NavHost(
         modifier = modifier,
@@ -31,27 +35,31 @@ fun NavigationRoot(
     ) {
 
         composable<Screen.WiredEyeScreen> {
-            WiredEyeScreen()
+            WiredEyeScreen(homeViewModel = homeViewModel)
+        }
+
+        composable<Screen.DetailsScreen> {
+            DetailsScreen()
         }
     }
 }
 
 @OptIn(ExperimentalAnimationApi::class)
-fun defaultEnterTransition(): EnterTransition {
+private fun defaultEnterTransition(): EnterTransition {
     return slideInHorizontally(initialOffsetX = { it })
 }
 
 @OptIn(ExperimentalAnimationApi::class)
-fun defaultExitTransition(): ExitTransition {
+private fun defaultExitTransition(): ExitTransition {
     return slideOutHorizontally(targetOffsetX = { -it })
 }
 
 @OptIn(ExperimentalAnimationApi::class)
-fun defaultPopEnterTransition(): EnterTransition {
+private fun defaultPopEnterTransition(): EnterTransition {
     return slideInHorizontally(initialOffsetX = { -it })
 }
 
 @OptIn(ExperimentalAnimationApi::class)
-fun defaultPopExitTransition(): ExitTransition {
+private fun defaultPopExitTransition(): ExitTransition {
     return slideOutHorizontally(targetOffsetX = { it })
 }

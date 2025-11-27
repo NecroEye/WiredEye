@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,11 +41,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
 import com.muratcangzm.monitor.MonitorViewModel
 import com.muratcangzm.monitor.common.UiPacket
 import com.muratcangzm.monitor.model.Direction
@@ -89,7 +92,15 @@ fun StatChip(text: String, color: Color) {
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = Color(0x15FFFFFF),
-        border = BorderStroke(width = 1.dp, brush = Brush.linearGradient(listOf(color.copy(alpha = 0.20f), color.copy(alpha = 0.20f))))
+        border = BorderStroke(
+            width = 1.dp,
+            brush = Brush.linearGradient(
+                listOf(
+                    color.copy(alpha = 0.20f),
+                    color.copy(alpha = 0.20f)
+                )
+            )
+        )
     ) {
         Text(
             text = text,
@@ -147,7 +158,11 @@ fun EndpointText(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = title, color = Color(0xFF8EA0B5), style = MaterialTheme.typography.labelSmall)
+            Text(
+                text = title,
+                color = Color(0xFF8EA0B5),
+                style = MaterialTheme.typography.labelSmall
+            )
             TagChip(text = tag)
             if (!service.isNullOrBlank()) TagChip(text = service)
         }
@@ -203,24 +218,32 @@ fun PinnedRowCompact(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onShareWindowJson) { Text(text = stringResource(Res.string.action_share)) }
-                    TextButton(onClick = { if (uid >= 0) onUnpin(uid) }) { Text(text = stringResource(Res.string.action_unpin)) }
+                    TextButton(onClick = { if (uid >= 0) onUnpin(uid) }) {
+                        Text(
+                            text = stringResource(
+                                Res.string.action_unpin
+                            )
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+@Suppress("ParamsComparedByRef")
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PacketRow(
+    modifier: Modifier = Modifier,
     row: UiPacket,
     highlighted: Boolean,
     onPin: (Int) -> Unit,
     onShareWindowJson: () -> Unit,
     onCopied: (String) -> Unit,
-    vm: MonitorViewModel,
+    monitorViewModel: MonitorViewModel,
     maxBytesInWindow: Int,
-    modifier: Modifier = Modifier
+    onNavigateDetails: () -> Unit,
 ) {
     val borderBrush = remember {
         Brush.linearGradient(listOf(Color(0xFF1B2B45), Color(0xFF20304F), Color(0xFF1B2B45)))
@@ -233,14 +256,18 @@ fun PacketRow(
         label = "anomaly-flash"
     )
 
+    //val navigator = LocalNavigator.current
+    val navigator = NavController(LocalContext.current)
     val initialFrom = row.from
     val initialTo = row.to
 
     val fromDisplay by produceState(initialValue = initialFrom, key1 = row.key) {
-        fun parseIp(s: String): String? = s.substringBeforeLast(':', s).takeIf { it.isNotBlank() && it != "—" && it != "-" }
+        fun parseIp(s: String): String? =
+            s.substringBeforeLast(':', s).takeIf { it.isNotBlank() && it != "—" && it != "-" }
+
         val localIp = parseIp(initialFrom)
         if (localIp != null) {
-            val host = vm.resolveHost(localIp)
+            val host = monitorViewModel.resolveHost(localIp)
             if (host != null) {
                 val port = initialFrom.substringAfterLast(':', missingDelimiterValue = "")
                 value = if (port.isNotEmpty()) "$host:$port" else host
@@ -249,10 +276,12 @@ fun PacketRow(
     }
 
     val toDisplay by produceState(initialValue = initialTo, key1 = row.key) {
-        fun parseIp(s: String): String? = s.substringBeforeLast(':', s).takeIf { it.isNotBlank() && it != "—" && it != "-" }
+        fun parseIp(s: String): String? =
+            s.substringBeforeLast(':', s).takeIf { it.isNotBlank() && it != "—" && it != "-" }
+
         val remoteIp = parseIp(initialTo)
         if (remoteIp != null) {
-            val host = vm.resolveHost(remoteIp)
+            val host = monitorViewModel.resolveHost(remoteIp)
             if (host != null) {
                 val port = initialTo.substringAfterLast(':', missingDelimiterValue = "")
                 value = if (port.isNotEmpty()) "$host:$port" else host
@@ -261,10 +290,12 @@ fun PacketRow(
     }
 
     val asnBadgeText by produceState<String?>(initialValue = null, key1 = row.key) {
-        fun parseIp(s: String): String? = s.substringBeforeLast(':', s).takeIf { it.isNotBlank() && it != "—" && it != "-" }
+        fun parseIp(s: String): String? =
+            s.substringBeforeLast(':', s).takeIf { it.isNotBlank() && it != "—" && it != "-" }
+
         val remoteIp = parseIp(initialTo)
         if (remoteIp != null) {
-            val info = vm.asnCountry(remoteIp)
+            val info = monitorViewModel.asnCountry(remoteIp)
             if (info != null) value = "AS${info.asn} • ${info.countryCode}"
         }
     }
@@ -283,7 +314,9 @@ fun PacketRow(
     }
     val directionLabel by remember(direction) {
         derivedStateOf {
-            when (direction) { Direction.TX -> "TX"; Direction.RX -> "RX"; Direction.MIX -> "MIX" }
+            when (direction) {
+                Direction.TX -> "TX"; Direction.RX -> "RX"; Direction.MIX -> "MIX"
+            }
         }
     }
     val directionColor by remember(direction) {
@@ -308,10 +341,6 @@ fun PacketRow(
     }
 
     Surface(
-        color = Color(0xFF0F1726),
-        shape = RoundedCornerShape(12.dp),
-        tonalElevation = 1.dp,
-        border = BorderStroke(1.dp, borderBrush),
         modifier = modifier
             .fillMaxWidth()
             .drawWithContent {
@@ -325,7 +354,15 @@ fun PacketRow(
                     )
                 }
             }
-    ) {
+            .clickable {
+                onNavigateDetails()
+            },
+        color = Color(0xFF0F1726),
+        shape = RoundedCornerShape(12.dp),
+        tonalElevation = 1.dp,
+        border = BorderStroke(1.dp, borderBrush),
+
+        ) {
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -360,7 +397,10 @@ fun PacketRow(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 StatChip(text = row.proto, color = Color(0xFF30E3A2))
                 StatChip(text = directionLabel, color = directionColor)
                 StatChip(text = row.bytesLabel, color = Color(0xFF30E3A2))
@@ -409,8 +449,10 @@ fun PacketRow(
     }
 }
 
+@Suppress("ParamsComparedByRef")
 @Composable
 fun PacketList(
+    modifier: Modifier = Modifier,
     isRunning: Boolean,
     adapterItems: List<UiPacketItem>,
     rawItems: List<UiPacket>,
@@ -419,8 +461,8 @@ fun PacketList(
     onPin: (Int) -> Unit,
     onShareWindowJson: () -> Unit,
     onCopied: (String) -> Unit,
-    vm: MonitorViewModel,
-    modifier: Modifier = Modifier
+    monitorViewModel: MonitorViewModel,
+    onNavigateDetails:() -> Unit,
 ) {
     val listState = rememberLazyListState()
     val isEmpty = adapterItems.isEmpty() && rawItems.isEmpty()
@@ -445,7 +487,11 @@ fun PacketList(
         }
     }
 
-    val windowMaxBytes by remember(rawItems) { derivedStateOf { rawItems.maxOfOrNull { it.raw.bytes }?.toInt() ?: 1 } }
+    val windowMaxBytes by remember(rawItems) {
+        derivedStateOf {
+            rawItems.maxOfOrNull { it.raw.bytes }?.toInt() ?: 1
+        }
+    }
 
     LazyColumn(
         state = listState,
@@ -492,8 +538,9 @@ fun PacketList(
                 onPin = onPin,
                 onShareWindowJson = onShareWindowJson,
                 onCopied = onCopied,
-                vm = vm,
-                maxBytesInWindow = windowMaxBytes
+                monitorViewModel = monitorViewModel,
+                maxBytesInWindow = windowMaxBytes,
+                onNavigateDetails = { onNavigateDetails() },
             )
         }
     }

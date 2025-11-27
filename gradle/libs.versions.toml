@@ -1,7 +1,7 @@
 [versions]
 # Android Gradle & Kotlin
-agp = "8.13.0"
-coreSplashscreen = "1.0.1"
+agp = "8.13.1"
+coreSplashscreen = "1.2.0"
 kotlin = "2.2.21"
 parcelizePlugin = "2.2.21"
 ksp = "2.2.20-2.0.3"
@@ -15,11 +15,11 @@ material = "1.13.0"
 coilComposeVersion = "2.7.0"
 
 # Compose
-activityCompose = "1.11.0"
-composeBom = "2025.10.01"
-lifecycleRuntimeKtx = "2.9.4"
-lifecycleRuntimeCompose = "2.9.4"
-uiGraphics = "1.9.4"
+activityCompose = "1.12.0"
+composeBom = "2025.11.01"
+lifecycleRuntimeKtx = "2.10.0"
+lifecycleRuntimeCompose = "2.10.0"
+uiGraphics = "1.9.5"
 
 # Test
 junit = "4.13.2"
@@ -28,7 +28,7 @@ espressoCore = "3.7.0"
 
 # WorkManager & Room
 workRuntime = "2.11.0"
-room = "2.8.3"
+room = "2.8.4"
 
 # Serialization / Coroutines
 kotlinxSerialization = "1.9.0"
@@ -36,38 +36,41 @@ kotlinxSerializationCore = "1.9.0"
 coroutines = "1.10.2"
 
 # Networking stack
-okio = "3.16.2"
-okhttp = "5.2.1"
+okio = "3.16.4"
+okhttp = "5.3.2"
 retrofit = "3.0.0"
 
 # Moshi
 moshi = "1.15.2"
 
 # DataStore & Security
-datastore = "1.1.7"
+datastore = "1.2.0"
 security = "1.1.0"
 
 # DI
 koin = "4.1.1"
 
 # Nav
-navigation = "2.9.5"
-nav3Core = "1.0.0-beta01"
-lifecycleViewmodelNav3 = "1.0.0-alpha04"
+navigation = "2.9.6"
+nav3Core = "1.0.0"
+lifecycleViewmodelNav3 = "2.10.0"
 
 # Haze
-hazeVersion = "1.6.10"
+hazeVersion = "1.7.0"
 
 # ---- Advanced crypto / parsing / capture ----
 bouncycastle = "1.82"
-protobuf = "4.33.0"
+protobuf = "4.33.1"
 wire = "5.4.0"
-jackson = "2.20.0"
+jackson = "2.20.1"
 pcap4j = "1.8.2"
 
 # NDK
 ndk = "28.1.13356709"
 cmake = "3.31.5"
+
+# Timber
+timber = "5.0.1"
 
 # Desugar
 desugarJdkLibs = "2.1.5"
@@ -117,6 +120,7 @@ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-co
 koin-android = { group = "io.insert-koin", name = "koin-android", version.ref = "koin" }
 koin-androidx-workmanager = { group = "io.insert-koin", name = "koin-androidx-workmanager", version.ref = "koin" }
 koin-androidx-compose = { group = "io.insert-koin", name = "koin-androidx-compose", version.ref = "koin" }
+koin-androidx-navigation = { group = "io.insert-koin", name = "koin-androidx-navigation", version.ref = "koin" }
 
 # WorkManager
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workRuntime" }
@@ -159,6 +163,8 @@ moshi = { group = "com.squareup.moshi", name = "moshi", version.ref = "moshi" }
 moshi-kotlin = { group = "com.squareup.moshi", name = "moshi-kotlin", version.ref = "moshi" }
 moshi-adapters = { group = "com.squareup.moshi", name = "moshi-adapters", version.ref = "moshi" }
 moshi-kotlin-codegen = { group = "com.squareup.moshi", name = "moshi-kotlin-codegen", version.ref = "moshi" }
+
+timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
 
 # DataStore & Security
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
@@ -222,6 +228,7 @@ koin = [
     "koin-android",
     "koin-androidx-compose",
     "koin-androidx-workmanager",
+    "koin-androidx-navigation",
 ]
 
 compose-animation = [
