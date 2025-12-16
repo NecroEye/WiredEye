@@ -2,9 +2,13 @@
   <dictionary name="project">
     <words>
       <w>fileprovider</w>
+      <w>imaps</w>
+      <w>mqtts</w>
       <w>muratcangzm</w>
       <w>navkey</w>
       <w>qname</w>
+      <w>smtps</w>
+      <w>snackbar</w>
       <w>wiredeye</w>
     </words>
   </dictionary>

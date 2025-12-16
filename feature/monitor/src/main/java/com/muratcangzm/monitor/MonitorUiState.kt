@@ -2,8 +2,9 @@ package com.muratcangzm.monitor
 
 import androidx.compose.runtime.Immutable
 import com.muratcangzm.monitor.common.SpeedMode
-import com.muratcangzm.monitor.common.UiPacket
 import com.muratcangzm.monitor.common.ViewMode
+import com.muratcangzm.shared.model.UiPacket
+
 @Immutable
 data class MonitorUiState(
     val isEngineRunning: Boolean = false,

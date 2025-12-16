@@ -1,5 +1,8 @@
 @file:Suppress("UnstableApiUsage")
 
+include(":core:shared")
+
+
 include(":feature:details")
 
 pluginManagement {

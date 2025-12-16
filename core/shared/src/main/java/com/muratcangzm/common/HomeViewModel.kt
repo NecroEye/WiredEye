@@ -1,8 +1,9 @@
 package com.muratcangzm.common
 
 import androidx.lifecycle.ViewModel
-import com.muratcangzm.common.nav2.NavigationData
-import com.muratcangzm.common.nav3.Screens
+import com.muratcangzm.common.nav.NavigationData
+import com.muratcangzm.common.nav.Screens
+import com.muratcangzm.shared.model.UiPacket
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -16,9 +17,9 @@ class HomeViewModel: ViewModel() {
     )
     val navigationEvents: SharedFlow<NavigationData> = _navigationEvents.asSharedFlow()
 
-    fun openDetails() {
+    fun openDetails(uiPacket: UiPacket) {
         _navigationEvents.tryEmit(
-            NavigationData(destination = Screens.DetailsScreen)
+            NavigationData(destination = Screens.DetailsScreen(uiPacket))
         )
     }
 

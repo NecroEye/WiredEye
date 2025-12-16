@@ -7,11 +7,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.compose.material3.SnackbarHostState
 import androidx.core.content.FileProvider
-import com.muratcangzm.monitor.common.UiPacket
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.io.File
 import com.muratcangzm.monitor.MonitorViewModel
+import com.muratcangzm.shared.model.UiPacket
+import com.muratcangzm.utils.StringUtils
 
 fun humanBytes(b: Long): String {
     val u = arrayOf("B", "KB", "MB", "GB", "TB")
@@ -61,10 +62,10 @@ private fun buildJson(items: List<UiPacket>): String {
         sb.append("{")
             .append("\"timestamp\":").append(m.timestamp).append(',')
             .append("\"uid\":").append(m.uid ?: -1).append(',')
-            .append("\"package\":\"").append((m.packageName ?: "").escapeJson()).append("\",")
+            .append("\"package\":\"").append((m.packageName ?: StringUtils.EMPTY).escapeJson()).append("\",")
             .append("\"protocol\":\"").append(m.protocol.escapeJson()).append("\",")
-            .append("\"from\":\"").append(((m.localAddress ?: "") + ":" + m.localPort).escapeJson()).append("\",")
-            .append("\"to\":\"").append(((m.remoteAddress ?: "") + ":" + m.remotePort).escapeJson()).append("\",")
+            .append("\"from\":\"").append((m.localAddress + ":" + m.localPort).escapeJson()).append("\",")
+            .append("\"to\":\"").append((m.remoteAddress + ":" + m.remotePort).escapeJson()).append("\",")
             .append("\"bytes\":").append(m.bytes)
             .append("}")
         if (i != items.lastIndex) sb.append(',')

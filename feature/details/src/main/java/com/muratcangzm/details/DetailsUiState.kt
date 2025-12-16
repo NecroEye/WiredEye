@@ -1,4 +1,9 @@
 package com.muratcangzm.details
 
-class DetailsUiState {
-}
+import androidx.compose.runtime.Immutable
+import com.muratcangzm.shared.model.UiPacket
+
+@Immutable
+data class DetailsUiState(
+    val uiPacket: UiPacket = UiPacket.EMPTY,
+)

@@ -2,25 +2,21 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
 }
 
 android {
-    namespace = "com.muratcangzm.data"
+    namespace = "com.muratcangzm.shared"
     compileSdk {
         version = release(ProjectConfig.compileSdk)
     }
 
     defaultConfig {
         minSdk = ProjectConfig.minSdk
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
     compileOptions {
@@ -29,30 +25,27 @@ android {
     }
     kotlinOptions {
         compileOptions.sourceCompatibility = JavaVersion.VERSION_21
-        freeCompilerArgs = listOf("-XXLanguage:+PropertyParamAnnotationDefaultTargetMode")
     }
     kotlin{
         jvmToolchain(21)
-    }
-
-    ksp {
-        arg("room.schemaLocation", "$projectDir/schemas")
-        arg("room.generateKotlin", "true")
     }
 }
 
 dependencies {
 
-    implementation(project(":core:common"))
-
-    // --- Room (KSP) ---
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
-
-    // --- Serialization ---
-    implementation(libs.kotlinx.serialization.json)
+    implementation(project(":core:data"))
 
     implementation(libs.koin.android)
+    implementation(libs.bundles.navigation)
+    implementation(libs.bundles.compose.base)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.material3)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.serialization.core)
+    implementation(libs.timber)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

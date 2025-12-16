@@ -35,6 +35,7 @@ dependencies {
     implementation(project(":core:preferences"))
     implementation(project(":core:common"))
     implementation(project(":core:resources"))
+    implementation(project(":core:shared"))
 
     // Koin
     implementation(libs.koin.android)
@@ -51,6 +52,9 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+
+    implementation("androidx.compose.material:material-icons-core")
+    implementation("androidx.compose.material:material-icons-extended")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

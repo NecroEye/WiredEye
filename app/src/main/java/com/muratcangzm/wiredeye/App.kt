@@ -4,8 +4,8 @@ import android.app.Application
 import com.ReleaseTree
 import com.muratcangzm.AppLogger
 import com.muratcangzm.Logger
-import com.muratcangzm.common.di.commonModule
 import com.muratcangzm.common.di.coroutinesModule
+import com.muratcangzm.common.di.sharedModule
 import com.muratcangzm.data.di.dataModule
 import com.muratcangzm.di.detailsModule
 import com.muratcangzm.monitor.di.monitorModule
@@ -50,7 +50,7 @@ class App : Application() {
                 coroutinesModule,
                 dataModule,
                 networkModule,
-                commonModule,
+                sharedModule,
                 monitorModule,
                 prefsModule,
                 detailsModule,

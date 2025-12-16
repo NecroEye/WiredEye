@@ -55,14 +55,14 @@ fun MetricInfoDialog(
             Text(
                 stringResource(titleRes),
                 style = MaterialTheme.typography.titleLarge,
-                color = Color(0xFF7BD7FF)
+                color = Color(0xFF7BD7FF),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Current:", color = Color(0xFF9EB2C0))
                 Text(
                     valueProvider(),
                     color = Color(0xFF30E3A2),
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleMedium,
                 )
             }
             Text(stringResource(descRes), color = Color(0xFFB8C8D8))

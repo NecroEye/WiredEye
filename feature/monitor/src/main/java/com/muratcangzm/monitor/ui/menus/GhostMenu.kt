@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.muratcangzm.monitor.common.ViewMode
 import com.muratcangzm.resources.R
@@ -107,4 +108,26 @@ fun GhostMenuRow(
         }
         if (selected) Text("✓", color = accent)
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun GhostViewModeAnchorPreview(){
+    GhostViewModeAnchor(
+        modifier = Modifier,
+        mode = ViewMode.RAW,
+        onChange = {},
+    )
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun GhostMenuRowPreview(){
+    GhostMenuRow(
+        icon = "≋",
+        title = "Cat",
+        subtitle = "Cat oğluCat",
+        selected = true,
+        onClick = {},
+    )
 }

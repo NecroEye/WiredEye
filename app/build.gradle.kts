@@ -107,6 +107,7 @@ dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:preferences"))
     implementation(project(":core:resources"))
+    implementation(project(":core:shared"))
     implementation(project(":feature:monitor"))
     implementation(project(":feature:details"))
 

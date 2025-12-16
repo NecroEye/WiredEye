@@ -49,11 +49,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.muratcangzm.monitor.MonitorViewModel
-import com.muratcangzm.monitor.common.UiPacket
 import com.muratcangzm.monitor.model.Direction
 import com.muratcangzm.monitor.ui.adapters.UiPacketItem
 import com.muratcangzm.monitor.utils.isPrivateV4
 import com.muratcangzm.monitor.utils.serviceName
+import com.muratcangzm.shared.model.UiPacket
 import java.util.Locale
 import com.muratcangzm.resources.R as Res
 
@@ -462,7 +462,7 @@ fun PacketList(
     onShareWindowJson: () -> Unit,
     onCopied: (String) -> Unit,
     monitorViewModel: MonitorViewModel,
-    onNavigateDetails:() -> Unit,
+    onNavigateDetails:(uiPacket: UiPacket) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val isEmpty = adapterItems.isEmpty() && rawItems.isEmpty()
@@ -540,7 +540,7 @@ fun PacketList(
                 onCopied = onCopied,
                 monitorViewModel = monitorViewModel,
                 maxBytesInWindow = windowMaxBytes,
-                onNavigateDetails = { onNavigateDetails() },
+                onNavigateDetails = { onNavigateDetails(item.model) },
             )
         }
     }

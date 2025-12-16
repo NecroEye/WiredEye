@@ -10,7 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.navigation.compose.rememberNavController
 import com.muratcangzm.common.HomeViewModel
-import com.muratcangzm.wiredeye.nav2.WiredEyeNavGraph
+import com.muratcangzm.wiredeye.nav.WiredEyeNavGraph
 import com.muratcangzm.wiredeye.ui.theme.WiredEyeTheme
 import org.koin.androidx.viewmodel.ext.android.viewModel
 

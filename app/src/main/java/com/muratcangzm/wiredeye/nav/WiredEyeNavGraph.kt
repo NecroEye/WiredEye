@@ -1,4 +1,4 @@
-package com.muratcangzm.wiredeye.nav2
+package com.muratcangzm.wiredeye.nav
 
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -11,10 +11,14 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.toRoute
 import com.muratcangzm.common.HomeViewModel
+import com.muratcangzm.common.nav.createGenericNavType
 import com.muratcangzm.details.DetailsScreen
 import com.muratcangzm.monitor.WiredEyeScreen
-import com.muratcangzm.common.nav3.Screens as Screen
+import com.muratcangzm.shared.model.UiPacket
+import kotlin.reflect.typeOf
+import com.muratcangzm.common.nav.Screens as Screen
 
 @Suppress("ParamsComparedByRef")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
@@ -38,8 +42,11 @@ fun WiredEyeNavGraph(
             WiredEyeScreen(homeViewModel = homeViewModel)
         }
 
-        composable<Screen.DetailsScreen> {
-            DetailsScreen()
+        composable<Screen.DetailsScreen>(
+            typeMap = mapOf(typeOf<UiPacket>() to createGenericNavType<UiPacket>())
+        ) {
+            val arguments = it.toRoute<Screen.DetailsScreen>()
+            DetailsScreen(homeViewModel = homeViewModel, arguments = arguments)
         }
     }
 }

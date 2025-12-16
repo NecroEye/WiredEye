@@ -4,6 +4,11 @@
     <string name="app_name">WiredEye</string>
     <string name="title_realtime_metadata">WiredEye — Realtime Metadata</string>
 
+    <!-- Common -->
+    <string name="wifi">Wi-Fi</string>
+    <string name="cellular">Cellular</string>
+    <string name="other">Other</string>
+
     <!-- Permissions / snackbars -->
     <string name="vpn_denied">VPN permission denied</string>
     <string name="network_changed_snackbar">Network: %1$s — metrics reset</string>

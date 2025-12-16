@@ -40,6 +40,7 @@ android {
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:resources"))
+    implementation(project(":core:shared"))
 
     // Koin
     implementation(libs.koin.android)

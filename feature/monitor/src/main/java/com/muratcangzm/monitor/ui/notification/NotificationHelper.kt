@@ -6,7 +6,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -16,7 +15,6 @@ import com.muratcangzm.monitor.model.ACTION_STOP_ENGINE
 import com.muratcangzm.monitor.model.NOTIFICATION_CHANNEL_ID
 import com.muratcangzm.monitor.model.NOTIFICATION_ID
 import com.muratcangzm.monitor.utils.humanBytes
-import java.util.Locale
 
 @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
 fun updateRunningNotification(
@@ -27,9 +25,9 @@ fun updateRunningNotification(
     mode: SpeedMode,
     total: Long
 ) {
-    val nm = NotificationManagerCompat.from(ctx)
+    val notificationManager = NotificationManagerCompat.from(ctx)
     if (!running) {
-        nm.cancel(NOTIFICATION_ID)
+        notificationManager.cancel(NOTIFICATION_ID)
         return
     }
     val ch = NotificationChannel(NOTIFICATION_CHANNEL_ID, ctx.getString(Res.string.notif_channel_name), NotificationManager.IMPORTANCE_LOW)
@@ -78,5 +76,5 @@ fun updateRunningNotification(
         .setContentIntent(pi)
         .addAction(android.R.drawable.ic_media_pause, ctx.getString(Res.string.notif_stop), stopPi)
         .build()
-    nm.notify(NOTIFICATION_ID, notif)
+    notificationManager.notify(NOTIFICATION_ID, notif)
 }

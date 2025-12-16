@@ -1,6 +1,6 @@
 [versions]
 # Android Gradle & Kotlin
-agp = "8.13.1"
+agp = "8.13.2"
 coreSplashscreen = "1.2.0"
 kotlin = "2.2.21"
 parcelizePlugin = "2.2.21"
@@ -15,11 +15,11 @@ material = "1.13.0"
 coilComposeVersion = "2.7.0"
 
 # Compose
-activityCompose = "1.12.0"
-composeBom = "2025.11.01"
+activityCompose = "1.12.1"
+composeBom = "2025.12.00"
 lifecycleRuntimeKtx = "2.10.0"
 lifecycleRuntimeCompose = "2.10.0"
-uiGraphics = "1.9.5"
+uiGraphics = "1.10.0"
 
 # Test
 junit = "4.13.2"
@@ -56,11 +56,11 @@ nav3Core = "1.0.0"
 lifecycleViewmodelNav3 = "2.10.0"
 
 # Haze
-hazeVersion = "1.7.0"
+hazeVersion = "1.7.1"
 
 # ---- Advanced crypto / parsing / capture ----
-bouncycastle = "1.82"
-protobuf = "4.33.1"
+bouncycastle = "1.83"
+protobuf = "4.33.2"
 wire = "5.4.0"
 jackson = "2.20.1"
 pcap4j = "1.8.2"

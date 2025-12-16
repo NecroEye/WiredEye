@@ -6,11 +6,18 @@ import com.muratcangzm.data.helper.UidResolver
 import com.muratcangzm.data.model.meta.PacketMeta
 import com.muratcangzm.data.repo.packetRepo.PacketRepository
 import com.muratcangzm.monitor.common.SpeedMode
-import com.muratcangzm.monitor.common.UiPacket
 import com.muratcangzm.monitor.common.ViewMode
+import com.muratcangzm.monitor.model.Aggregate
+import com.muratcangzm.monitor.model.AsnInfo
+import com.muratcangzm.monitor.model.Cidr
+import com.muratcangzm.monitor.model.Controls
+import com.muratcangzm.monitor.model.Inputs
+import com.muratcangzm.monitor.model.RateSample
+import com.muratcangzm.monitor.model.Stats
 import com.muratcangzm.network.engine.EngineState
 import com.muratcangzm.network.engine.PacketCaptureEngine
 import com.muratcangzm.preferences.PreferencesRepository
+import com.muratcangzm.shared.model.UiPacket
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -56,7 +63,6 @@ class MonitorViewModel(
     private val labelByUid = ConcurrentHashMap<Int, String?>()
     private val packageByUid = ConcurrentHashMap<Int, String?>()
 
-    private data class RateSample(var lastTimestamp: Long, var exponentialMovingAverage: Double, var lastAlertTimestamp: Long)
     private val rateByUidAndHost = ConcurrentHashMap<String, RateSample>()
     private val seenUidHostKeys = ConcurrentHashMap<String, Long>()
 
@@ -88,14 +94,6 @@ class MonitorViewModel(
         }
     }
 
-    private data class Controls(
-        val windowMillis: Long,
-        val query: String,
-        val minBytes: Long,
-        val terms: List<String>,
-        val clearAfterMillis: Long
-    )
-
     private fun tokenize(query: String): List<String> =
         query.lowercase(Locale.getDefault())
             .split(' ', '\t')
@@ -115,13 +113,6 @@ class MonitorViewModel(
                 SpeedMode.TURBO -> 100L
             }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, 220L)
-
-    private data class Inputs(
-        val packets: List<PacketMeta>,
-        val controls: Controls,
-        val pinned: Set<Int>,
-        val muted: Set<Int>
-    )
 
     private val inputs: StateFlow<Inputs> =
         combine(windowPackets, controls, pinnedUidSet, mutedUidSet) { list, c, pins, mutes ->
@@ -155,8 +146,6 @@ class MonitorViewModel(
                 }
             }.distinctUntilChanged().sample(cadence)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    private data class Stats(val totalAllTimeBytes: Long, val uniqueAppCount: Int, val packetsPerSecond: Double, val kilobytesPerSecond: Double)
 
     @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
     private val stats: StateFlow<Stats> =
@@ -278,7 +267,6 @@ class MonitorViewModel(
     }
 
     private fun aggregateToUi(list: List<PacketMeta>): List<UiPacket> {
-        data class Aggregate(var totalBytes: Long, var latest: PacketMeta)
         val capacity = min(max(16, list.size / 4), 1_000_000)
         val map = HashMap<String, Aggregate>(capacity)
         for (meta in list) {
@@ -340,8 +328,6 @@ class MonitorViewModel(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 512
     }
 
-    data class AsnInfo(val asn: Int, val countryCode: String, val organization: String)
-    private data class Cidr(val base: String, val prefix: Int, val info: AsnInfo)
 
     private val asnTable: List<Cidr> = listOf(
         Cidr("8.8.8.0", 24, AsnInfo(15169, "US", "Google")),
@@ -355,8 +341,8 @@ class MonitorViewModel(
         synchronized(dnsLock) { dnsCache[ip] }?.let { return@withContext it }
         if (!ipPattern.matches(ip)) return@withContext null
         val host = runCatching {
-            val addr = java.net.InetAddress.getByName(ip)
-            val name = addr.canonicalHostName ?: addr.hostName
+            val address = java.net.InetAddress.getByName(ip)
+            val name = address.canonicalHostName ?: address.hostName
             if (name != ip) name else null
         }.getOrNull()
         if (host != null) synchronized(dnsLock) { dnsCache[ip] = host }
