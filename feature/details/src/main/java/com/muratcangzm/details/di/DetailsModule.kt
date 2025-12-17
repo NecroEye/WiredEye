@@ -1,4 +1,4 @@
-package com.muratcangzm.di
+package com.muratcangzm.details.di
 
 import com.muratcangzm.details.DetailsViewModel
 import org.koin.core.module.dsl.viewModel

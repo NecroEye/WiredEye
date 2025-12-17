@@ -86,4 +86,43 @@
     <string name="metric_kbs_desc">The total bytes within the selected window normalized per second; shows the instantaneous transfer rate in KB/s.</string>
     <string name="current_label">Current:</string>
     <string name="close">Close</string>
+
+    <!-- Details -->
+    <string name="details_title">Packet details</string>
+
+    <string name="details_section_packet">Packet</string>
+    <string name="details_section_connection">Connection</string>
+    <string name="details_section_traffic">Traffic</string>
+    <string name="details_section_raw_meta">Raw meta</string>
+
+    <string name="details_action_copy">Copy</string>
+    <string name="details_action_share">Share</string>
+    <string name="details_share_chooser">Share packet</string>
+
+    <string name="details_label_from">From</string>
+    <string name="details_label_to">To</string>
+    <string name="details_label_bytes">Bytes</string>
+    <string name="details_label_tls">TLS</string>
+    <string name="details_label_sni">SNI</string>
+    <string name="details_label_local">Local</string>
+    <string name="details_label_remote">Remote</string>
+
+    <string name="details_label_key">Key</string>
+    <string name="details_label_timestamp">Timestamp</string>
+    <string name="details_label_uid">UID</string>
+    <string name="details_label_package">Package</string>
+    <string name="details_label_protocol">Protocol</string>
+    <string name="details_label_dir">Direction</string>
+
+    <string name="details_yes">Yes</string>
+    <string name="details_no">No</string>
+
+    <string name="details_share_header">WiredEye • Packet</string>
+    <string name="details_share_app">App: %1$s</string>
+    <string name="details_share_meta">Meta: %1$s</string>
+    <string name="details_share_from">From: %1$s</string>
+    <string name="details_share_to">To: %1$s</string>
+    <string name="details_share_bytes">Bytes: %1$s</string>
+    <string name="details_share_key">Key: %1$s</string>
+
 </resources>

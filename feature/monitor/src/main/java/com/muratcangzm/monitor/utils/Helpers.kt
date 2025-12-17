@@ -14,7 +14,7 @@ import com.muratcangzm.monitor.MonitorViewModel
 import com.muratcangzm.shared.model.UiPacket
 import com.muratcangzm.utils.StringUtils
 
-fun humanBytes(b: Long): String {
+internal fun humanBytes(b: Long): String {
     val u = arrayOf("B", "KB", "MB", "GB", "TB")
     var v = b.toDouble()
     var i = 0
@@ -25,7 +25,7 @@ fun humanBytes(b: Long): String {
     return String.format(Locale.getDefault(), "%.1f %s", v, u[i])
 }
 
-fun shareWindowJson(ctx: Context, items: List<UiPacket>, snackbarHost: SnackbarHostState, scope: CoroutineScope) {
+internal fun shareWindowJson(ctx: Context, items: List<UiPacket>, snackbarHost: SnackbarHostState, scope: CoroutineScope) {
     runCatching {
         val json = buildJson(items)
         val dir = File(ctx.cacheDir, "exports").apply { mkdirs() }
@@ -87,9 +87,9 @@ private fun String.escapeJson(): String = buildString {
     }
 }
 
-fun serviceName(port: Int): String? = if (port == 0) null else MonitorViewModel.SERVICE_NAMES[port]
+internal fun serviceName(port: Int): String? = if (port == 0) null else MonitorViewModel.SERVICE_NAMES[port]
 
-fun isPrivateV4(ip: String): Boolean {
+internal fun isPrivateV4(ip: String): Boolean {
     if (!ip.contains('.')) return false
     val p = ip.split('.').mapNotNull { it.toIntOrNull() }
     if (p.size != 4) return false

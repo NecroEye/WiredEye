@@ -7,7 +7,7 @@ import com.muratcangzm.Logger
 import com.muratcangzm.common.di.coroutinesModule
 import com.muratcangzm.common.di.sharedModule
 import com.muratcangzm.data.di.dataModule
-import com.muratcangzm.di.detailsModule
+import com.muratcangzm.details.di.detailsModule
 import com.muratcangzm.monitor.di.monitorModule
 import com.muratcangzm.network.di.networkModule
 import com.muratcangzm.preferences.di.prefsModule

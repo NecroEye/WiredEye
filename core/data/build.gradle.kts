@@ -29,7 +29,6 @@ android {
     }
     kotlinOptions {
         compileOptions.sourceCompatibility = JavaVersion.VERSION_21
-        freeCompilerArgs = listOf("-XXLanguage:+PropertyParamAnnotationDefaultTargetMode")
     }
     kotlin{
         jvmToolchain(21)
@@ -52,6 +51,7 @@ dependencies {
     // --- Serialization ---
     implementation(libs.kotlinx.serialization.json)
 
+    // --- Koin ---
     implementation(libs.koin.android)
 
     implementation(libs.androidx.core.ktx)

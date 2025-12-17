@@ -79,6 +79,8 @@ import com.muratcangzm.monitor.ui.notification.updateRunningNotification
 import com.muratcangzm.monitor.utils.humanBytes
 import com.muratcangzm.monitor.utils.shareWindowJson
 import com.muratcangzm.network.vpn.DnsSnifferVpnService
+import com.muratcangzm.resources.ui.theme.GhostColors
+import com.muratcangzm.ui.components.StatusBarStyle
 import com.muratcangzm.utils.StringUtils
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
@@ -111,6 +113,12 @@ fun WiredEyeScreen(
             if (res.resultCode == Activity.RESULT_OK) monitorViewModel.onEvent(MonitorUiEvent.StartEngine)
             else scope.launch { snackBarHost.showSnackbar(stringVpnDenied) }
         }
+
+
+    StatusBarStyle(
+        color = GhostColors.Surface,
+        darkIcons = false
+    )
 
     fun startWithVpnConsent() {
         val i = VpnService.prepare(context)

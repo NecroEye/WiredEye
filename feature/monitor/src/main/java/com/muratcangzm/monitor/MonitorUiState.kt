@@ -4,12 +4,13 @@ import androidx.compose.runtime.Immutable
 import com.muratcangzm.monitor.common.SpeedMode
 import com.muratcangzm.monitor.common.ViewMode
 import com.muratcangzm.shared.model.UiPacket
+import com.muratcangzm.utils.StringUtils
 
 @Immutable
 data class MonitorUiState(
     val isEngineRunning: Boolean = false,
     val items: List<UiPacket> = emptyList(),
-    val filterText: String = "",
+    val filterText: String = StringUtils.EMPTY,
     val minBytes: Long = 0L,
     val windowMillis: Long = 10_000L,
     val totalBytes: Long = 0L,

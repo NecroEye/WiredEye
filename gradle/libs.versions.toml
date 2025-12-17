@@ -2,8 +2,8 @@
 # Android Gradle & Kotlin
 agp = "8.13.2"
 coreSplashscreen = "1.2.0"
-kotlin = "2.2.21"
-parcelizePlugin = "2.2.21"
+kotlin = "2.3.0"
+parcelizePlugin = "2.3.0"
 ksp = "2.2.20-2.0.3"
 
 # AndroidX core & app compat

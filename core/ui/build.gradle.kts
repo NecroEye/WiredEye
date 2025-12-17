@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.muratcangzm.details"
+    namespace = "com.muratcangzm.ui"
     compileSdk {
         version = release(ProjectConfig.compileSdk)
     }
@@ -16,15 +16,16 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    buildFeatures {
-        compose = true
-    }
-
     buildTypes {
         release {
             isMinifyEnabled = false
         }
     }
+
+    buildFeatures {
+        compose = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -38,18 +39,6 @@ android {
 }
 
 dependencies {
-    implementation(project(":core:ui"))
-    implementation(project(":core:data"))
-    implementation(project(":core:common"))
-    implementation(project(":core:resources"))
-    implementation(project(":core:shared"))
-
-    // Koin
-    implementation(libs.koin.android)
-    implementation(libs.koin.androidx.compose)
-
-    //Nav
-    implementation(libs.bundles.navigation)
 
     //Haze
     implementation(libs.haze)
