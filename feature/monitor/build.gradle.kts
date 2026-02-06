@@ -24,6 +24,7 @@ android {
     kotlinOptions {
         compileOptions.sourceCompatibility = JavaVersion.VERSION_21
     }
+
     kotlin {
         jvmToolchain(21)
     }
@@ -65,5 +66,4 @@ dependencies {
 
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
-
 }

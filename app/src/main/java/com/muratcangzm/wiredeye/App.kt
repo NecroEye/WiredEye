@@ -8,9 +8,11 @@ import com.muratcangzm.common.di.coroutinesModule
 import com.muratcangzm.common.di.sharedModule
 import com.muratcangzm.data.di.dataModule
 import com.muratcangzm.details.di.detailsModule
+import com.muratcangzm.leaks.di.leaksModule
 import com.muratcangzm.monitor.di.monitorModule
 import com.muratcangzm.network.di.networkModule
 import com.muratcangzm.preferences.di.prefsModule
+import com.muratcangzm.summary.di.summaryModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import timber.log.Timber
@@ -54,6 +56,8 @@ class App : Application() {
                 monitorModule,
                 prefsModule,
                 detailsModule,
+                leaksModule,
+                summaryModule,
             )
         }
     }

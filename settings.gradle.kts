@@ -1,5 +1,11 @@
 @file:Suppress("UnstableApiUsage")
 
+include(":feature:summary")
+
+
+include(":feature:leaks")
+
+
 include(":core:ui")
 
 

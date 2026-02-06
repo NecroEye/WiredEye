@@ -193,7 +193,9 @@ fun GlowingStatChip(
         delay(2500)
         idle = true
     }
+
     val pulse = remember { Animatable(0.65f) }
+
     LaunchedEffect(idle) {
         if (!idle) {
             pulse.snapTo(0f)
@@ -204,12 +206,14 @@ fun GlowingStatChip(
             pulse.animateTo(0.65f, animationSpec = tween(625, easing = FastOutSlowInEasing))
         }
     }
+
     val baseSurface = remember { Color(0xFF101826) }
     val shadowColor by rememberUpdatedState(accent)
     val borderStroke = remember(accent) { BorderStroke(1.dp, accent.copy(alpha = 0.15f)) }
     val glowAlpha = if (idle) pulse.value else 0f
     val blurRadius = if (idle) 18f * glowAlpha.coerceIn(0f, 1f) else 0f
     val onClickStable by rememberUpdatedState(onClick)
+
     Surface(
         tonalElevation = 3.dp,
         color = baseSurface,

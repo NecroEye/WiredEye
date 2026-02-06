@@ -35,7 +35,9 @@
             <option value="$PROJECT_DIR$/core/ui" />
             <option value="$PROJECT_DIR$/feature" />
             <option value="$PROJECT_DIR$/feature/details" />
+            <option value="$PROJECT_DIR$/feature/leaks" />
             <option value="$PROJECT_DIR$/feature/monitor" />
+            <option value="$PROJECT_DIR$/feature/summary" />
           </set>
         </option>
       </GradleProjectSettings>

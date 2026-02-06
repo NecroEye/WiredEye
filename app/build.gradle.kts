@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -86,12 +88,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
         isCoreLibraryDesugaringEnabled = true
     }
-    kotlinOptions {
-        compileOptions.sourceCompatibility = JavaVersion.VERSION_21
-    }
+
     kotlin {
         jvmToolchain(21)
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_21)
+        }
     }
+
     buildFeatures {
         compose = true
         buildConfig = true
@@ -110,6 +114,8 @@ dependencies {
     implementation(project(":core:shared"))
     implementation(project(":feature:monitor"))
     implementation(project(":feature:details"))
+    implementation(project(":feature:leaks"))
+    implementation(project(":feature:summary"))
 
     // --- DI + WorkManager ---
     implementation(libs.koin.androidx.workmanager)

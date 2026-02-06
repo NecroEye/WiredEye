@@ -15,12 +15,10 @@ import androidx.navigation.toRoute
 import com.muratcangzm.common.HomeViewModel
 import com.muratcangzm.common.nav.createGenericNavType
 import com.muratcangzm.details.DetailsScreen
-import com.muratcangzm.monitor.WiredEyeScreen
 import com.muratcangzm.shared.model.UiPacket
 import kotlin.reflect.typeOf
 import com.muratcangzm.common.nav.Screens as Screen
 
-@Suppress("ParamsComparedByRef")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
 @Composable
 fun WiredEyeNavGraph(
@@ -31,15 +29,15 @@ fun WiredEyeNavGraph(
     NavHost(
         modifier = modifier,
         navController = navController,
-        startDestination = Screen.WiredEyeScreen,
+        startDestination = Screen.Root,
         enterTransition = { defaultEnterTransition() },
         exitTransition = { defaultExitTransition() },
         popEnterTransition = { defaultPopEnterTransition() },
         popExitTransition = { defaultPopExitTransition() },
     ) {
 
-        composable<Screen.WiredEyeScreen> {
-            WiredEyeScreen(homeViewModel = homeViewModel)
+        composable<Screen.Root> {
+            WiredEyeRootScreen(homeViewModel = homeViewModel)
         }
 
         composable<Screen.DetailsScreen>(
@@ -52,21 +50,13 @@ fun WiredEyeNavGraph(
 }
 
 @OptIn(ExperimentalAnimationApi::class)
-private fun defaultEnterTransition(): EnterTransition {
-    return slideInHorizontally(initialOffsetX = { it })
-}
+private fun defaultEnterTransition(): EnterTransition = slideInHorizontally(initialOffsetX = { it })
 
 @OptIn(ExperimentalAnimationApi::class)
-private fun defaultExitTransition(): ExitTransition {
-    return slideOutHorizontally(targetOffsetX = { -it })
-}
+private fun defaultExitTransition(): ExitTransition = slideOutHorizontally(targetOffsetX = { -it })
 
 @OptIn(ExperimentalAnimationApi::class)
-private fun defaultPopEnterTransition(): EnterTransition {
-    return slideInHorizontally(initialOffsetX = { -it })
-}
+private fun defaultPopEnterTransition(): EnterTransition = slideInHorizontally(initialOffsetX = { -it })
 
 @OptIn(ExperimentalAnimationApi::class)
-private fun defaultPopExitTransition(): ExitTransition {
-    return slideOutHorizontally(targetOffsetX = { it })
-}
+private fun defaultPopExitTransition(): ExitTransition = slideOutHorizontally(targetOffsetX = { it })
