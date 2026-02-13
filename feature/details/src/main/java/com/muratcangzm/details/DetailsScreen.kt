@@ -49,27 +49,28 @@ import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import com.muratcangzm.resources.R as Res
 
+@Suppress("ParamsComparedByRef")
 @Composable
 fun DetailsScreen(
     homeViewModel: HomeViewModel,
     detailsViewModel: DetailsViewModel = koinViewModel(),
     arguments: Screens.DetailsScreen,
 ) {
-    val uiState by detailsViewModel.uiState.collectAsStateWithLifecycle()
+    val state by detailsViewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(arguments) {
-        detailsViewModel.setArguments(arguments = arguments)
+        detailsViewModel.onEvent(DetailsContract.Event.SetArguments(arguments))
     }
 
     DetailsScreenContent(
-        uiState = uiState,
-        onToggleRaw = detailsViewModel::toggleRawExpanded
+        state = state,
+        onToggleRaw = { detailsViewModel.onEvent(DetailsContract.Event.ToggleRawExpanded) }
     )
 }
 
 @Composable
 fun DetailsScreenContent(
-    uiState: DetailsUiState,
+    state: DetailsContract.State,
     onToggleRaw: () -> Unit
 ) {
     val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
@@ -79,7 +80,7 @@ fun DetailsScreenContent(
     val snackbar = remember { SnackbarHostState() }
     val formatter = remember { defaultTimeFormatter() }
 
-    val packet = uiState.uiPacket
+    val packet = state.uiPacket
     val raw = packet.raw
 
     val detailsTitle = stringResource(Res.string.details_title)
@@ -257,14 +258,14 @@ fun DetailsScreenContent(
                 }
 
                 item {
-                    val chevron = if (uiState.isRawExpanded) "▾" else "▸"
+                    val chevron = if (state.isRawExpanded) "▾" else "▸"
                     DetailsSectionCard(
                         title = stringResource(Res.string.details_section_raw_meta),
                         trailing = chevron,
                         onHeaderClick = onToggleRaw
                     ) {
                         AnimatedVisibility(
-                            visible = uiState.isRawExpanded,
+                            visible = state.isRawExpanded,
                             enter = fadeIn(tween(180)) + expandVertically(
                                 tween(
                                     220,
@@ -298,7 +299,7 @@ fun DetailsScreenContent(
 @Composable
 private fun DetailsScreenPreview() {
     DetailsScreenContent(
-        uiState = DetailsUiState(),
+        state = DetailsContract.State(),
         onToggleRaw = {},
     )
 }

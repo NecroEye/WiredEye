@@ -83,7 +83,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.muratcangzm.monitor.MonitorUiState
+import com.muratcangzm.monitor.MonitorContract
 import com.muratcangzm.monitor.common.SpeedMode
 import com.muratcangzm.monitor.common.ViewMode
 import com.muratcangzm.monitor.model.StatKind
@@ -747,7 +747,7 @@ fun FilterBar(
 @Suppress("DefaultLocale")
 @Composable
 fun TechStatsBar(
-    state: MonitorUiState,
+    state: MonitorContract.State,
     onWindowChange: (Long) -> Unit,
     onSpeedChange: (SpeedMode) -> Unit,
     viewMode: ViewMode,

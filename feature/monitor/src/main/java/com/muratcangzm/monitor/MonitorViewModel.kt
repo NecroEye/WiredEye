@@ -14,6 +14,7 @@ import com.muratcangzm.monitor.model.Controls
 import com.muratcangzm.monitor.model.Inputs
 import com.muratcangzm.monitor.model.RateSample
 import com.muratcangzm.monitor.model.Stats
+import com.muratcangzm.monitor.utils.humanBytes
 import com.muratcangzm.network.engine.EngineState
 import com.muratcangzm.network.engine.PacketCaptureEngine
 import com.muratcangzm.preferences.PreferencesRepository
@@ -21,12 +22,15 @@ import com.muratcangzm.shared.model.UiPacket
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
@@ -37,6 +41,8 @@ import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
@@ -47,16 +53,19 @@ class MonitorViewModel(
     private val captureEngine: PacketCaptureEngine,
     private val uidResolver: UidResolver,
     private val preferences: PreferencesRepository,
-) : ViewModel() {
+) : ViewModel(), MonitorContract.Presenter {
 
     private val filterQuery = MutableStateFlow("")
     private val minimumBytes = MutableStateFlow(0L)
-    private val windowDurationMillis = MutableStateFlow(10_000L)
+    private val windowDurationMillis = MutableStateFlow(DEFAULT_WINDOW_MILLIS)
     private val clearThresholdMillis = MutableStateFlow(0L)
-    private val speed = MutableStateFlow(SpeedMode.FAST)
+
+    private val speed = MutableStateFlow(SpeedMode.ECO)
     private val view = MutableStateFlow(ViewMode.RAW)
+
     private val engineState: StateFlow<EngineState> = captureEngine.state
     private val totalBytesAllTime = MutableStateFlow(0L)
+
     private val pinnedUidSet = MutableStateFlow<Set<Int>>(emptySet())
     private val mutedUidSet = MutableStateFlow<Set<Int>>(emptySet())
 
@@ -67,8 +76,13 @@ class MonitorViewModel(
     private val seenUidHostKeys = ConcurrentHashMap<String, Long>()
 
     private val anomalyKeys = MutableStateFlow<Set<String>>(emptySet())
-    private val _anomalyEvents = MutableSharedFlow<String>(extraBufferCapacity = 4)
-    val anomalyEvents: SharedFlow<String> = _anomalyEvents
+
+    private val _effects = MutableSharedFlow<MonitorContract.Effect>(
+        replay = 0,
+        extraBufferCapacity = 32,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    override val effects: SharedFlow<MonitorContract.Effect> = _effects.asSharedFlow()
 
     private val rateThresholdBytesPerSecond = 128 * 1024.0
     private val newHostBytesMinimum = 64 * 1024L
@@ -101,23 +115,37 @@ class MonitorViewModel(
 
     private val controls: StateFlow<Controls> =
         combine(windowDurationMillis, filterQuery, minimumBytes, clearThresholdMillis) { win, q, minB, clearTs ->
-            Controls(windowMillis = win, query = q, minBytes = minB, terms = tokenize(q), clearAfterMillis = clearTs)
+            Controls(
+                windowMillis = win,
+                query = q,
+                minBytes = minB,
+                terms = tokenize(q),
+                clearAfterMillis = clearTs
+            )
         }.distinctUntilChanged()
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Controls(10_000L, "", 0L, emptyList(), 0L))
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                Controls(DEFAULT_WINDOW_MILLIS, "", 0L, emptyList(), 0L)
+            )
 
     private val cadenceMillis: StateFlow<Long> =
-        speed.map {
-            when (it) {
+        speed.map { mode ->
+            when (mode) {
                 SpeedMode.ECO -> 500L
                 SpeedMode.FAST -> 220L
                 SpeedMode.TURBO -> 100L
             }
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, 220L)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, 500L)
 
     private val inputs: StateFlow<Inputs> =
         combine(windowPackets, controls, pinnedUidSet, mutedUidSet) { list, c, pins, mutes ->
             Inputs(list, c, pins, mutes)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Inputs(emptyList(), controls.value, emptySet(), emptySet()))
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            Inputs(emptyList(), controls.value, emptySet(), emptySet())
+        )
 
     @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
     private val uiPackets: StateFlow<List<UiPacket>> =
@@ -167,18 +195,25 @@ class MonitorViewModel(
                         val key = packet.packageName ?: "uid:${packet.uid ?: -1}"
                         uniqueKeys.add(key)
                     }
-                    Stats(totalBytesAllTime.value, uniqueKeys.size, pps, kbs)
+
+                    Stats(
+                        totalAllTimeBytes = totalBytesAllTime.value,
+                        uniqueAppCount = uniqueKeys.size,
+                        packetsPerSecond = pps,
+                        kilobytesPerSecond = kbs
+                    )
                 }
             }.sample(cadence)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Stats(0L, 0, 0.0, 0.0))
 
     private val isRunning: StateFlow<Boolean> =
-        engineState.map { it is EngineState.Running }
+        engineState
+            .map { it is EngineState.Running }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    private val baseUi: StateFlow<MonitorUiState> =
+    private val baseState: StateFlow<MonitorContract.State> =
         combine(uiPackets, controls, isRunning, stats, pinnedUidSet) { items, c, running, s, pins ->
-            MonitorUiState(
+            MonitorContract.State(
                 isEngineRunning = running,
                 items = items,
                 filterText = c.query,
@@ -190,28 +225,28 @@ class MonitorViewModel(
                 throughputKbs = s.kilobytesPerSecond,
                 pinnedUids = pins
             )
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorUiState())
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorContract.State())
 
-    val uiState: StateFlow<MonitorUiState> =
-        baseUi
-            .combine(speed) { state, mode -> state.copy(speedMode = mode) }
-            .combine(view) { state, selected -> state.copy(viewMode = selected) }
-            .combine(anomalyKeys) { state, keys -> state.copy(anomalyKeys = keys) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorUiState())
+    override val state: StateFlow<MonitorContract.State> =
+        baseState
+            .combine(speed) { s, mode -> s.copy(speedMode = mode) }
+            .combine(view) { s, v -> s.copy(viewMode = v) }
+            .combine(anomalyKeys) { s, keys -> s.copy(anomalyKeys = keys) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MonitorContract.State())
 
-    fun onEvent(event: MonitorUiEvent) {
+    override fun onEvent(event: MonitorContract.Event) {
         when (event) {
-            is MonitorUiEvent.SetFilter -> filterQuery.value = event.text
-            is MonitorUiEvent.SetMinBytes -> minimumBytes.value = event.value
-            is MonitorUiEvent.SetWindow -> windowDurationMillis.value = event.millis
-            is MonitorUiEvent.TogglePin -> togglePin(event.uid)
-            is MonitorUiEvent.ToggleMute -> toggleMute(event.uid)
-            is MonitorUiEvent.SetSpeed -> speed.value = event.mode
-            is MonitorUiEvent.SetViewMode -> view.value = event.mode
-            MonitorUiEvent.ClearFilter -> filterQuery.value = ""
-            MonitorUiEvent.StartEngine -> viewModelScope.launch { captureEngine.start() }
-            MonitorUiEvent.StopEngine -> viewModelScope.launch { captureEngine.stop() }
-            MonitorUiEvent.ClearNow -> clearNow()
+            is MonitorContract.Event.SetFilter -> filterQuery.value = event.text
+            is MonitorContract.Event.SetMinBytes -> minimumBytes.value = event.value
+            is MonitorContract.Event.SetWindow -> windowDurationMillis.value = event.millis
+            is MonitorContract.Event.TogglePin -> togglePin(event.uid)
+            is MonitorContract.Event.ToggleMute -> toggleMute(event.uid)
+            is MonitorContract.Event.SetSpeed -> speed.value = event.mode
+            is MonitorContract.Event.SetViewMode -> view.value = event.mode
+            MonitorContract.Event.ClearFilter -> filterQuery.value = ""
+            MonitorContract.Event.StartEngine -> viewModelScope.launch { captureEngine.start() }
+            MonitorContract.Event.StopEngine -> viewModelScope.launch { captureEngine.stop() }
+            MonitorContract.Event.ClearNow -> clearNow()
         }
     }
 
@@ -239,13 +274,16 @@ class MonitorViewModel(
         val packageNameOrResolved = packageName ?: uid?.let { safePackage(it) } ?: ""
         val labelOrResolved = uid?.let { safeLabel(it) } ?: ""
         val appText = when {
-            labelOrResolved.isNotBlank() && packageNameOrResolved.isNotBlank() -> "$labelOrResolved · $packageNameOrResolved (uid:$uidText)"
+            labelOrResolved.isNotBlank() && packageNameOrResolved.isNotBlank() ->
+                "$labelOrResolved · $packageNameOrResolved (uid:$uidText)"
             labelOrResolved.isNotBlank() -> "$labelOrResolved (uid:$uidText)"
             packageNameOrResolved.isNotBlank() -> "$packageNameOrResolved (uid:$uidText)"
             else -> "uid:$uidText"
         }
+
         val local = if (localAddress == "-" || localPort <= 0) "—" else "$localAddress:$localPort"
         val remote = if (remoteAddress == "-" || remotePort <= 0) "—" else "$remoteAddress:$remotePort"
+
         val transport = protocol.uppercase(Locale.getDefault())
         val port = when {
             remotePort > 0 -> remotePort
@@ -254,9 +292,10 @@ class MonitorViewModel(
         }
         val service = SERVICE_NAMES[port]
         val protocolPretty = if (service != null && port > 0) "$transport • $service:$port" else transport
+
         return UiPacket(
-            key = "$timestamp:$uidText:$bytes:$localPort:$remotePort:$localAddress:$remoteAddress",
-            time = formatTime(timestamp),
+            key = uiKey(this),
+            time = formatLocalTime(timestamp),
             app = appText,
             proto = protocolPretty,
             from = local,
@@ -269,6 +308,7 @@ class MonitorViewModel(
     private fun aggregateToUi(list: List<PacketMeta>): List<UiPacket> {
         val capacity = min(max(16, list.size / 4), 1_000_000)
         val map = HashMap<String, Aggregate>(capacity)
+
         for (meta in list) {
             val key = aggregateKey(meta)
             val aggregate = map[key]
@@ -279,12 +319,19 @@ class MonitorViewModel(
                 if (meta.timestamp > aggregate.latest.timestamp) aggregate.latest = meta
             }
         }
+
         val output = ArrayList<UiPacket>(map.size)
         for ((key, aggregate) in map) {
             val last = aggregate.latest
             val synthetic = last.copy(bytes = aggregate.totalBytes, protocol = "AGG")
             val ui = synthetic.toUiPacket()
-            output.add(ui.copy(key = "agg:$key", proto = "AGG", bytesLabel = humanBytes(aggregate.totalBytes)))
+            output.add(
+                ui.copy(
+                    key = "agg:$key",
+                    proto = "AGG",
+                    bytesLabel = humanBytes(aggregate.totalBytes)
+                )
+            )
         }
         return output
     }
@@ -294,8 +341,10 @@ class MonitorViewModel(
 
     private fun matchesFilter(meta: PacketMeta, terms: List<String>): Boolean {
         if (terms.isEmpty()) return true
+
         val label = meta.uid?.let { safeLabel(it) } ?: ""
         val pkg = meta.packageName ?: meta.uid?.let { safePackage(it) } ?: ""
+
         val haystack = buildString {
             append(label).append(' ')
             append(pkg).append(' ')
@@ -306,6 +355,7 @@ class MonitorViewModel(
             append(meta.localPort).append(' ')
             append(meta.remotePort)
         }.lowercase(Locale.getDefault())
+
         return terms.all { haystack.contains(it) }
     }
 
@@ -328,7 +378,6 @@ class MonitorViewModel(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 512
     }
 
-
     private val asnTable: List<Cidr> = listOf(
         Cidr("8.8.8.0", 24, AsnInfo(15169, "US", "Google")),
         Cidr("1.1.1.0", 24, AsnInfo(13335, "US", "Cloudflare")),
@@ -340,11 +389,13 @@ class MonitorViewModel(
     suspend fun resolveHost(ip: String): String? = withContext(Dispatchers.IO) {
         synchronized(dnsLock) { dnsCache[ip] }?.let { return@withContext it }
         if (!ipPattern.matches(ip)) return@withContext null
+
         val host = runCatching {
             val address = java.net.InetAddress.getByName(ip)
             val name = address.canonicalHostName ?: address.hostName
             if (name != ip) name else null
         }.getOrNull()
+
         if (host != null) synchronized(dnsLock) { dnsCache[ip] = host }
         host
     }
@@ -373,20 +424,28 @@ class MonitorViewModel(
         val host = meta.remoteAddress ?: return
         if (host == "-" || meta.bytes <= 0) return
         val uid = meta.uid ?: return
+
         val key = "$uid|$host"
         val now = meta.timestamp
         val sample = rateByUidAndHost.getOrPut(key) { RateSample(0L, 0.0, 0L) }
+
         if (sample.lastTimestamp > 0L) {
             val deltaMillis = (now - sample.lastTimestamp).coerceAtLeast(1L)
             val instantaneousBytesPerSecond = meta.bytes.toDouble() * 1000.0 / deltaMillis.toDouble()
             val alpha = 0.85
-            sample.exponentialMovingAverage = sample.exponentialMovingAverage * alpha + instantaneousBytesPerSecond * (1.0 - alpha)
-            if (sample.exponentialMovingAverage > rateThresholdBytesPerSecond && (now - sample.lastAlertTimestamp) > alertDebounceMillis) {
+            sample.exponentialMovingAverage =
+                sample.exponentialMovingAverage * alpha + instantaneousBytesPerSecond * (1.0 - alpha)
+
+            if (
+                sample.exponentialMovingAverage > rateThresholdBytesPerSecond &&
+                (now - sample.lastAlertTimestamp) > alertDebounceMillis
+            ) {
                 sample.lastAlertTimestamp = now
                 val message = "High throughput ${formatBytesPerSecond(sample.exponentialMovingAverage)} to $host"
                 flagAnomaly(meta, message)
             }
         }
+
         sample.lastTimestamp = now
     }
 
@@ -394,6 +453,7 @@ class MonitorViewModel(
         val host = meta.remoteAddress ?: return
         if (host == "-" || meta.bytes < newHostBytesMinimum) return
         val uid = meta.uid ?: return
+
         val key = "$uid|$host"
         if (seenUidHostKeys.putIfAbsent(key, meta.timestamp) == null) {
             val message = "New host spike: $host • ${humanBytes(meta.bytes)}"
@@ -403,15 +463,17 @@ class MonitorViewModel(
 
     private fun flagAnomaly(meta: PacketMeta, message: String) {
         val key = uiKey(meta)
+
         val current = anomalyKeys.value
         if (!current.contains(key)) {
             anomalyKeys.value = current + key
             viewModelScope.launch {
-                kotlinx.coroutines.delay(highlightHoldMillis)
-                anomalyKeys.value = anomalyKeys.value - key
+                delay(highlightHoldMillis)
+                anomalyKeys.value -= key
             }
         }
-        _anomalyEvents.tryEmit(message)
+
+        _effects.tryEmit(MonitorContract.Effect.Snackbar(message))
     }
 
     private fun uiKey(meta: PacketMeta): String {
@@ -430,24 +492,15 @@ class MonitorViewModel(
         return String.format(Locale.getDefault(), "%.1f %s", value, units[index])
     }
 
-    private fun humanBytes(bytes: Long): String {
-        val units = arrayOf("B", "KB", "MB", "GB", "TB")
-        var value = bytes.toDouble()
-        var index = 0
-        while (value >= 1024 && index < units.lastIndex) {
-            value /= 1024
-            index++
-        }
-        return String.format(Locale.getDefault(), "%.1f %s", value, units[index])
-    }
-
-    private fun formatTime(timestamp: Long): String =
-        java.time.Instant.ofEpochMilli(timestamp)
-            .atZone(java.time.ZoneId.systemDefault())
+    private fun formatLocalTime(timestamp: Long): String =
+        Instant.ofEpochMilli(timestamp)
+            .atZone(ZoneId.systemDefault())
             .toLocalTime()
             .toString()
 
     companion object {
+        private const val DEFAULT_WINDOW_MILLIS = 10_000L
+
         val SERVICE_NAMES = mapOf(
             21 to "FTP", 22 to "SSH", 25 to "SMTP", 53 to "DNS",
             80 to "HTTP", 123 to "NTP", 143 to "IMAP",

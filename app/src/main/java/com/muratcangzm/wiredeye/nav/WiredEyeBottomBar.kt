@@ -3,6 +3,7 @@ package com.muratcangzm.wiredeye.nav
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -126,13 +127,23 @@ private fun BottomTabItem(
 
     val inf = rememberInfiniteTransition(label = "tab-pulse")
     val pulse by inf.animateFloat(
-        initialValue = 0f,
+        initialValue = 0.35f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(2400, easing = FastOutSlowInEasing)),
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = 1600,
+                easing = FastOutSlowInEasing
+            ),
+            repeatMode = RepeatMode.Reverse
+        ),
         label = "tab-pulse-value"
     )
 
-    val glow = if (selected) pulse else 0f
+    val glow = if (selected) {
+        val x = ((pulse - 0.35f) / 0.65f).coerceIn(0f, 1f)
+        x * x * (3f - 2f * x)
+    } else 0f
+
     val pillShape = RoundedCornerShape(16.dp)
     val pillBrush = remember {
         Brush.linearGradient(

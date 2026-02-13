@@ -1,21 +1,36 @@
 package com.muratcangzm.details
 
 import androidx.lifecycle.ViewModel
-import com.muratcangzm.common.nav.Screens
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-class DetailsViewModel : ViewModel() {
-    private val _uiState = MutableStateFlow(DetailsUiState())
-    val uiState: StateFlow<DetailsUiState> = _uiState.asStateFlow()
+class DetailsViewModel : ViewModel(), DetailsContract.Presenter {
 
-    fun setArguments(arguments: Screens.DetailsScreen) {
-        _uiState.update { it.copy(uiPacket = arguments.uiPacket) }
-    }
+    private val _state = MutableStateFlow(DetailsContract.State())
+    override val state: StateFlow<DetailsContract.State> = _state.asStateFlow()
 
-    fun toggleRawExpanded() {
-        _uiState.update { it.copy(isRawExpanded = !it.isRawExpanded) }
+    private val _effects = MutableSharedFlow<DetailsContract.Effect>(
+        replay = 0,
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    override val effects: SharedFlow<DetailsContract.Effect> = _effects.asSharedFlow()
+
+    override fun onEvent(event: DetailsContract.Event) {
+        when (event) {
+            is DetailsContract.Event.SetArguments -> {
+                _state.update { it.copy(uiPacket = event.arguments.uiPacket) }
+            }
+
+            DetailsContract.Event.ToggleRawExpanded -> {
+                _state.update { it.copy(isRawExpanded = !it.isRawExpanded) }
+            }
+        }
     }
 }

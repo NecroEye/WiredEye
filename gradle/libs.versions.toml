@@ -15,11 +15,11 @@ material = "1.13.0"
 coilComposeVersion = "2.7.0"
 
 # Compose
-activityCompose = "1.12.3"
-composeBom = "2026.01.01"
+activityCompose = "1.12.4"
+composeBom = "2026.02.00"
 lifecycleRuntimeKtx = "2.10.0"
 lifecycleRuntimeCompose = "2.10.0"
-uiGraphics = "1.10.2"
+uiGraphics = "1.10.3"
 
 # Test
 junit = "4.13.2"
@@ -52,11 +52,11 @@ koin = "4.1.1"
 
 # Nav
 navigation = "2.9.7"
-nav3Core = "1.0.0"
+nav3Core = "1.0.1"
 lifecycleViewmodelNav3 = "2.10.0"
 
 # Haze
-hazeVersion = "1.7.1"
+hazeVersion = "1.7.2"
 
 # ---- Advanced crypto / parsing / capture ----
 bouncycastle = "1.83"

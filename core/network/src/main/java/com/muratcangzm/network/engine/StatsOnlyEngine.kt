@@ -34,7 +34,6 @@ class StatsOnlyEngine(
     private val _state = MutableStateFlow<EngineState>(EngineState.Stopped)
     override val state: StateFlow<EngineState> = _state
 
-    // Artık broadcast dinlemiyoruz; servis bus’a basıyor, biz direkt flow’u expose ediyoruz
     override val events: SharedFlow<PacketMeta> = bus.events
 
     override fun updateConfig(config: PacketCaptureConfig) { /* no-op */ }
@@ -44,20 +43,18 @@ class StatsOnlyEngine(
 
         val consentNeeded = VpnService.prepare(app) != null
         if (consentNeeded) {
-            Log.w(TAG, "start(): VPN consent required")
             _state.value = EngineState.Failed(IllegalStateException("VPN consent required"))
             return
         }
 
         _state.value = EngineState.Starting
         scope.launch {
-            Log.d(TAG, "Starting DnsSnifferVpnService …")
-            app.startService(
+            ContextCompat.startForegroundService(
+                app,
                 Intent(app, DnsSnifferVpnService::class.java)
                     .setAction(DnsSnifferVpnService.ACTION_START)
             )
             _state.value = EngineState.Running
-            Log.d(TAG, "Engine state → Running")
         }
     }
 
