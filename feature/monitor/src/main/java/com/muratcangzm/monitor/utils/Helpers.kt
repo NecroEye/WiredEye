@@ -11,7 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.io.File
 import com.muratcangzm.monitor.MonitorViewModel
-import com.muratcangzm.shared.model.UiPacket
+import com.muratcangzm.shared.model.network.UiPacket
 import com.muratcangzm.utils.StringUtils
 
 internal fun humanBytes(b: Long): String {

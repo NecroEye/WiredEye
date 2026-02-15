@@ -3,7 +3,7 @@ package com.muratcangzm.common
 import androidx.lifecycle.ViewModel
 import com.muratcangzm.common.nav.NavigationData
 import com.muratcangzm.common.nav.Screens
-import com.muratcangzm.shared.model.UiPacket
+import com.muratcangzm.shared.model.network.UiPacket
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow

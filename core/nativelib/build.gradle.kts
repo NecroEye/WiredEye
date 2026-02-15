@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -54,5 +55,13 @@ android {
 }
 
 dependencies {
+
+    implementation(project(":core:shared"))
+
+    // Koin
+    implementation(libs.koin.android)
+
     implementation(libs.androidx.core.ktx)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.serialization.core)
 }

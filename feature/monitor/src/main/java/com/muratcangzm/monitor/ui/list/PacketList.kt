@@ -53,7 +53,7 @@ import com.muratcangzm.monitor.model.Direction
 import com.muratcangzm.monitor.ui.adapters.UiPacketItem
 import com.muratcangzm.monitor.utils.isPrivateV4
 import com.muratcangzm.monitor.utils.serviceName
-import com.muratcangzm.shared.model.UiPacket
+import com.muratcangzm.shared.model.network.UiPacket
 import java.util.Locale
 import com.muratcangzm.resources.R as Res
 

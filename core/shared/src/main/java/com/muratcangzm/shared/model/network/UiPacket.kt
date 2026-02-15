@@ -1,9 +1,8 @@
-package com.muratcangzm.shared.model
+package com.muratcangzm.shared.model.network
 
 import androidx.compose.runtime.Immutable
 import com.muratcangzm.data.model.meta.PacketMeta
 import kotlinx.serialization.Serializable
-
 
 @Immutable
 @Serializable

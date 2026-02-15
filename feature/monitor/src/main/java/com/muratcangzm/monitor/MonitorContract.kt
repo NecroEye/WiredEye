@@ -3,7 +3,7 @@ package com.muratcangzm.monitor
 import androidx.compose.runtime.Immutable
 import com.muratcangzm.monitor.common.SpeedMode
 import com.muratcangzm.monitor.common.ViewMode
-import com.muratcangzm.shared.model.UiPacket
+import com.muratcangzm.shared.model.network.UiPacket
 import com.muratcangzm.utils.StringUtils
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow

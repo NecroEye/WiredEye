@@ -67,7 +67,6 @@ static void loop_read_tun(int tunFd, int mtu, int readTimeoutMs,
                 jbyteArray arr = env->NewByteArray((jsize) r);
                 if (arr) {
                     env->SetByteArrayRegion(arr, 0, (jsize) r, buf.data());
-                    // packetCount=0: tek ham frame
                     env->CallVoidMethod(gListener, gOnBatch, arr, (jint) r, (jint) 0);
                     env->DeleteLocalRef(arr);
                 }

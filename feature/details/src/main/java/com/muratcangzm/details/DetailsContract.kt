@@ -1,7 +1,7 @@
 package com.muratcangzm.details
 
 import com.muratcangzm.common.nav.Screens
-import com.muratcangzm.shared.model.UiPacket
+import com.muratcangzm.shared.model.network.UiPacket
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 

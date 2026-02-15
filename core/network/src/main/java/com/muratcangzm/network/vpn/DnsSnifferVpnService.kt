@@ -14,6 +14,7 @@ import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
 import com.muratcangzm.core.NativeTun
+import com.muratcangzm.core.leak.LeakAnalyzerBridge
 import com.muratcangzm.data.model.meta.DnsMeta
 import com.muratcangzm.data.model.meta.PacketMeta
 import com.muratcangzm.data.repo.packetRepo.PacketRepository
@@ -38,6 +39,7 @@ class DnsSnifferVpnService : VpnService(), NativeTun.Listener {
 
     private val packetRepository: PacketRepository by inject()
     private val eventBus: PacketEventBus by inject()
+    private val leakAnalyzerBridge: LeakAnalyzerBridge by inject()
 
     private var tunInterface: ParcelFileDescriptor? = null
     private var nativeLayerRunning: Boolean = false
@@ -271,8 +273,18 @@ class DnsSnifferVpnService : VpnService(), NativeTun.Listener {
     private fun recordDns(sourceIp: String, destinationIp: String, payload: ByteBuffer) {
         val message = DnsMessage.tryParse(payload.duplicate().order(ByteOrder.BIG_ENDIAN)) ?: return
         val question = message.questions.firstOrNull() ?: return
+
+        val ts = System.currentTimeMillis()
+        leakAnalyzerBridge.onDns(
+            timestampMillis = ts,
+            userIdentifier = -1,
+            queryName = question.name,
+            queryType = dnsTypeToInt(question.type),
+            serverIp = destinationIp
+        )
+
         val event = DnsMeta(
-            timestamp = System.currentTimeMillis(),
+            timestamp = ts,
             uid = null,
             packageName = null,
             qname = question.name,
@@ -280,6 +292,23 @@ class DnsSnifferVpnService : VpnService(), NativeTun.Listener {
             server = destinationIp
         )
         ioScope.launch { runCatching { packetRepository.recordDnsEvent(event) } }
+    }
+
+    private fun dnsTypeToInt(type: String): Int {
+        return when (type.trim().uppercase()) {
+            "A" -> 1
+            "NS" -> 2
+            "CNAME" -> 5
+            "SOA" -> 6
+            "PTR" -> 12
+            "MX" -> 15
+            "TXT" -> 16
+            "AAAA" -> 28
+            "SRV" -> 33
+            "OPT" -> 41
+            "HTTPS" -> 65
+            else -> type.filter { it.isDigit() }.toIntOrNull() ?: 0
+        }
     }
 
     private fun emitMeta(meta: PacketMeta) {

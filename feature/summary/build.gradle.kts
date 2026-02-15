@@ -40,6 +40,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:nativelib"))
     implementation(project(":core:ui"))
     implementation(project(":core:resources"))
     implementation(project(":core:common"))

@@ -15,7 +15,7 @@ import androidx.navigation.toRoute
 import com.muratcangzm.common.HomeViewModel
 import com.muratcangzm.common.nav.createGenericNavType
 import com.muratcangzm.details.DetailsScreen
-import com.muratcangzm.shared.model.UiPacket
+import com.muratcangzm.shared.model.network.UiPacket
 import kotlin.reflect.typeOf
 import com.muratcangzm.common.nav.Screens as Screen
 

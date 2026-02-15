@@ -68,7 +68,7 @@ fun WiredEyeRootScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues = PaddingValues(bottom = innerPadding.calculateBottomPadding() - 54.dp))
+                .padding(paddingValues = PaddingValues(bottom = innerPadding.calculateBottomPadding() - 90.dp))
         ) {
             NavHost(
                 navController = tabNavController,

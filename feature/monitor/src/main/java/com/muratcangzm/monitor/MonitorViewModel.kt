@@ -18,7 +18,7 @@ import com.muratcangzm.monitor.utils.humanBytes
 import com.muratcangzm.network.engine.EngineState
 import com.muratcangzm.network.engine.PacketCaptureEngine
 import com.muratcangzm.preferences.PreferencesRepository
-import com.muratcangzm.shared.model.UiPacket
+import com.muratcangzm.shared.model.network.UiPacket
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview

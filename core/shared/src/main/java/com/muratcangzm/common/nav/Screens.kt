@@ -1,6 +1,6 @@
     package com.muratcangzm.common.nav
 
-    import com.muratcangzm.shared.model.UiPacket
+    import com.muratcangzm.shared.model.network.UiPacket
     import kotlinx.serialization.Serializable
 
     @Serializable

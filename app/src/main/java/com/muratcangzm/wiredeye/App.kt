@@ -6,6 +6,7 @@ import com.muratcangzm.AppLogger
 import com.muratcangzm.Logger
 import com.muratcangzm.common.di.coroutinesModule
 import com.muratcangzm.common.di.sharedModule
+import com.muratcangzm.core.leak.di.coreLeakModule
 import com.muratcangzm.data.di.dataModule
 import com.muratcangzm.details.di.detailsModule
 import com.muratcangzm.leaks.di.leaksModule
@@ -58,6 +59,7 @@ class App : Application() {
                 detailsModule,
                 leaksModule,
                 summaryModule,
+                coreLeakModule,
             )
         }
     }

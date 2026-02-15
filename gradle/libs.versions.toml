@@ -1,6 +1,6 @@
 [versions]
 # Android Gradle & Kotlin
-agp = "9.0.0"
+agp = "9.0.1"
 coreSplashscreen = "1.2.0"
 kotlin = "2.3.10"
 parcelizePlugin = "2.3.10"

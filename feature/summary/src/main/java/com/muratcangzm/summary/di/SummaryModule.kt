@@ -5,5 +5,5 @@ import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
 val summaryModule = module {
-    viewModel { SummaryViewModel() }
+    viewModel { SummaryViewModel(leakAnalyzerBridge = get()) }
 }
