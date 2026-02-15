@@ -174,7 +174,7 @@ fun LeaksScopeRow(
 
             LeaksChip(
                 label = "Window",
-                value = selectedTimeRange.name,
+                value = selectedTimeRange.displayName,
                 accent = LeaksTokens.Accent,
                 onClick = {
                     val next = when (selectedTimeRange) {

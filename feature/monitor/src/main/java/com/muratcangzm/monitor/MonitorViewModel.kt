@@ -17,7 +17,7 @@ import com.muratcangzm.monitor.model.Stats
 import com.muratcangzm.monitor.utils.humanBytes
 import com.muratcangzm.network.engine.EngineState
 import com.muratcangzm.network.engine.PacketCaptureEngine
-import com.muratcangzm.preferences.PreferencesRepository
+import com.muratcangzm.network.engine.PacketEventBus
 import com.muratcangzm.shared.model.network.UiPacket
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -51,8 +52,8 @@ import kotlin.math.min
 class MonitorViewModel(
     private val packetRepository: PacketRepository,
     private val captureEngine: PacketCaptureEngine,
+    private val eventBus: PacketEventBus,
     private val uidResolver: UidResolver,
-    private val preferences: PreferencesRepository,
 ) : ViewModel(), MonitorContract.Presenter {
 
     private val filterQuery = MutableStateFlow("")
@@ -76,6 +77,7 @@ class MonitorViewModel(
     private val seenUidHostKeys = ConcurrentHashMap<String, Long>()
 
     private val anomalyKeys = MutableStateFlow<Set<String>>(emptySet())
+    private val frozenPackets = MutableStateFlow<List<PacketMeta>>(emptyList())
 
     private val _effects = MutableSharedFlow<MonitorContract.Effect>(
         replay = 0,
@@ -89,18 +91,33 @@ class MonitorViewModel(
     private val alertDebounceMillis = 5_000L
     private val highlightHoldMillis = 1_600L
 
+    private val isRunning: StateFlow<Boolean> =
+        engineState
+            .map { it is EngineState.Running }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val windowPackets: StateFlow<List<PacketMeta>> =
+    private val windowPacketsRaw: StateFlow<List<PacketMeta>> =
         windowDurationMillis
             .flatMapLatest { packetRepository.liveWindow(it) }
             .buffer(Channel.BUFFERED)
             .conflate()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val windowPackets: StateFlow<List<PacketMeta>> =
+        combine(isRunning, windowPacketsRaw, frozenPackets) { running, current, frozen ->
+            if (running) {
+                if (current.isNotEmpty()) frozenPackets.update { current }
+                current
+            } else {
+                frozen
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     init {
         viewModelScope.launch {
-            captureEngine.events.collect { meta ->
-                packetRepository.recordPacketMeta(meta)
+            eventBus.events.collect { meta ->
                 detectHighThroughput(meta)
                 detectNewHost(meta)
                 totalBytesAllTime.value += meta.bytes
@@ -114,7 +131,12 @@ class MonitorViewModel(
             .mapNotNull { token -> token.trim().ifEmpty { null } }
 
     private val controls: StateFlow<Controls> =
-        combine(windowDurationMillis, filterQuery, minimumBytes, clearThresholdMillis) { win, q, minB, clearTs ->
+        combine(
+            windowDurationMillis,
+            filterQuery,
+            minimumBytes,
+            clearThresholdMillis
+        ) { win, q, minB, clearTs ->
             Controls(
                 windowMillis = win,
                 query = q,
@@ -186,9 +208,11 @@ class MonitorViewModel(
                         .filter { matchesFilter(it, c.terms) }
                         .toList()
 
-                    val pps = if (c.windowMillis > 0) filtered.size / (c.windowMillis / 1000.0) else 0.0
+                    val pps =
+                        if (c.windowMillis > 0) filtered.size / (c.windowMillis / 1000.0) else 0.0
                     val sumBytes = filtered.sumOf { it.bytes }
-                    val kbs = if (c.windowMillis > 0) (sumBytes.toDouble() / (c.windowMillis / 1000.0)) / 1024.0 else 0.0
+                    val kbs =
+                        if (c.windowMillis > 0) (sumBytes.toDouble() / (c.windowMillis / 1000.0)) / 1024.0 else 0.0
 
                     val uniqueKeys = HashSet<String>()
                     for (packet in filtered) {
@@ -205,11 +229,6 @@ class MonitorViewModel(
                 }
             }.sample(cadence)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Stats(0L, 0, 0.0, 0.0))
-
-    private val isRunning: StateFlow<Boolean> =
-        engineState
-            .map { it is EngineState.Running }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val baseState: StateFlow<MonitorContract.State> =
         combine(uiPackets, controls, isRunning, stats, pinnedUidSet) { items, c, running, s, pins ->
@@ -246,17 +265,24 @@ class MonitorViewModel(
             MonitorContract.Event.ClearFilter -> filterQuery.value = ""
             MonitorContract.Event.StartEngine -> viewModelScope.launch { captureEngine.start() }
             MonitorContract.Event.StopEngine -> viewModelScope.launch { captureEngine.stop() }
-            MonitorContract.Event.ClearNow -> clearNow()
+            MonitorContract.Event.ClearNow -> {
+                clearNow()
+                resetTotals()
+            }
         }
     }
 
     private fun clearNow() {
         val now = System.currentTimeMillis()
         clearThresholdMillis.value = now
-        totalBytesAllTime.value = 0L
         anomalyKeys.value = emptySet()
         rateByUidAndHost.clear()
         seenUidHostKeys.clear()
+        frozenPackets.value = emptyList()
+    }
+
+    private fun resetTotals() {
+        totalBytesAllTime.value = 0L
     }
 
     private fun togglePin(uid: Int) {
@@ -276,13 +302,15 @@ class MonitorViewModel(
         val appText = when {
             labelOrResolved.isNotBlank() && packageNameOrResolved.isNotBlank() ->
                 "$labelOrResolved · $packageNameOrResolved (uid:$uidText)"
+
             labelOrResolved.isNotBlank() -> "$labelOrResolved (uid:$uidText)"
             packageNameOrResolved.isNotBlank() -> "$packageNameOrResolved (uid:$uidText)"
             else -> "uid:$uidText"
         }
 
         val local = if (localAddress == "-" || localPort <= 0) "—" else "$localAddress:$localPort"
-        val remote = if (remoteAddress == "-" || remotePort <= 0) "—" else "$remoteAddress:$remotePort"
+        val remote =
+            if (remoteAddress == "-" || remotePort <= 0) "—" else "$remoteAddress:$remotePort"
 
         val transport = protocol.uppercase(Locale.getDefault())
         val port = when {
@@ -291,7 +319,8 @@ class MonitorViewModel(
             else -> 0
         }
         val service = SERVICE_NAMES[port]
-        val protocolPretty = if (service != null && port > 0) "$transport • $service:$port" else transport
+        val protocolPretty =
+            if (service != null && port > 0) "$transport • $service:$port" else transport
 
         return UiPacket(
             key = uiKey(this),
@@ -375,7 +404,8 @@ class MonitorViewModel(
 
     private val dnsLock = Any()
     private val dnsCache = object : LinkedHashMap<String, String>(256, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean = size > 512
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean =
+            size > 512
     }
 
     private val asnTable: List<Cidr> = listOf(
@@ -431,7 +461,8 @@ class MonitorViewModel(
 
         if (sample.lastTimestamp > 0L) {
             val deltaMillis = (now - sample.lastTimestamp).coerceAtLeast(1L)
-            val instantaneousBytesPerSecond = meta.bytes.toDouble() * 1000.0 / deltaMillis.toDouble()
+            val instantaneousBytesPerSecond =
+                meta.bytes.toDouble() * 1000.0 / deltaMillis.toDouble()
             val alpha = 0.85
             sample.exponentialMovingAverage =
                 sample.exponentialMovingAverage * alpha + instantaneousBytesPerSecond * (1.0 - alpha)
@@ -441,7 +472,8 @@ class MonitorViewModel(
                 (now - sample.lastAlertTimestamp) > alertDebounceMillis
             ) {
                 sample.lastAlertTimestamp = now
-                val message = "High throughput ${formatBytesPerSecond(sample.exponentialMovingAverage)} to $host"
+                val message =
+                    "High throughput ${formatBytesPerSecond(sample.exponentialMovingAverage)} to $host"
                 flagAnomaly(meta, message)
             }
         }

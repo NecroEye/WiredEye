@@ -11,8 +11,8 @@ val monitorModule = module {
         MonitorViewModel(
             packetRepository = get(),
             captureEngine = get(qualifier = EngineQualifiers.Active),
+            eventBus = get(),
             uidResolver = get<UidResolver>(),
-            preferences = get(),
         )
     }
 }

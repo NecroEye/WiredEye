@@ -22,6 +22,7 @@ interface LeaksContract {
         val topServers: List<TopServer> = emptyList()
     )
 
+
     sealed interface Event {
         data class SetQuery(val value: String) : Event
         data class SetSeverity(val value: Severity) : Event
@@ -37,10 +38,13 @@ interface LeaksContract {
 
     enum class Severity { All, Low, Medium, High }
 
-    enum class TimeRange(val windowMillis: Long) {
-        Last1h(60 * 60 * 1000L),
-        Last24h(24 * 60 * 60 * 1000L),
-        Last7d(7 * 24 * 60 * 60 * 1000L)
+    enum class TimeRange(
+        val windowMillis: Long,
+        val displayName: String
+    ) {
+        Last1h(windowMillis = 60 * 60 * 1000L, displayName = "Last 1h"),
+        Last24h(windowMillis = 24 * 60 * 60 * 1000L, displayName = "Last 24h"),
+        Last7d(windowMillis = 7 * 24 * 60 * 60 * 1000L, displayName = "Last 7d"),
     }
 
     interface Presenter {

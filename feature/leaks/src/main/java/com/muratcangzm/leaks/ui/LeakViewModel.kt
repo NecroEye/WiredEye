@@ -3,8 +3,6 @@ package com.muratcangzm.leaks.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.muratcangzm.core.leak.LeakAnalyzerBridge
-import com.muratcangzm.shared.model.leak.TopDomain
-import com.muratcangzm.shared.model.leak.TopServer
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow

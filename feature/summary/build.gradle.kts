@@ -43,6 +43,7 @@ dependencies {
     implementation(project(":core:nativelib"))
     implementation(project(":core:ui"))
     implementation(project(":core:resources"))
+    implementation(project(":core:data"))
     implementation(project(":core:common"))
     implementation(project(":core:shared"))
 

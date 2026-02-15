@@ -1,5 +1,6 @@
 package com.muratcangzm.network.engine
 
+import android.util.Log
 import com.muratcangzm.data.model.meta.PacketMeta
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -14,6 +15,7 @@ class PacketEventBus {
     val events: SharedFlow<PacketMeta> = _events
 
     fun tryEmit(meta: PacketMeta) {
-        _events.tryEmit(meta)
+        val ok = _events.tryEmit(meta)
+        Log.d("WE_FLOW", "EVENTBUS tryEmit ok=$ok bytes=${meta.bytes} uid=${meta.uid}")
     }
 }

@@ -1,9 +1,11 @@
 package com.muratcangzm.shared.model.leak
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
+@Immutable
 data class LeakSnapshot(
     @SerialName("score") val score: Int = 0,
     @SerialName("windowMs") val windowMs: Long = 600_000L,
