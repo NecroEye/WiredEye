@@ -19,7 +19,9 @@ val dataModule = module {
             androidContext(),
             WiredEyeDatabase::class.java,
             "monitor.db"
-        ).build()
+        )
+            .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+            .build()
     }
 
     single<PacketLogDao> { get<WiredEyeDatabase>().packetLogDao() }

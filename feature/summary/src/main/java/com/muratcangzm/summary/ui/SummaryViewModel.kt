@@ -9,6 +9,7 @@ import com.muratcangzm.data.dao.TopAppByBytesRow
 import com.muratcangzm.data.helper.UidResolver
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +34,11 @@ class SummaryViewModel(
 ) : ViewModel(), SummaryContract.Presenter {
 
     private val selectedWindow = MutableStateFlow(SummaryContract.Window.Week)
+
+    private var refreshStartedAtMs: Long = 0L
+    private val minShimmerMs = 320L
+    private val isRefreshing = MutableStateFlow(false)
+    private var refreshToken: Long = 0L
 
     private val nowMillisFlow: StateFlow<Long> =
         kotlinx.coroutines.flow.flow {
@@ -106,8 +112,7 @@ class SummaryViewModel(
                 ) { packetRows, dnsRows ->
                     val bytesByDay = packetRows.associateBy({ it.dateLabel }, { it.totalBytes })
                     val leaksByDay = dnsRows.associateBy({ it.dateLabel }, { it.leakCount })
-                    val dateLabels =
-                        (bytesByDay.keys + leaksByDay.keys).distinct().sortedDescending()
+                    val dateLabels = (bytesByDay.keys + leaksByDay.keys).distinct().sortedDescending()
                     dateLabels.map { dateLabel ->
                         SummaryContract.DayItem(
                             dateLabel = dateLabel,
@@ -137,10 +142,10 @@ class SummaryViewModel(
     init {
         viewModelScope.launch {
             leakAnalyzerBridge.snapshot.collect { snapshot ->
+                val publicDnsPercent = (snapshot.publicDnsRatio * 100.0).roundToInt()
                 _state.update { current ->
-                    val publicDnsPercent = (snapshot.publicDnsRatio * 100.0).roundToInt()
                     current.copy(
-                        isLoading = false,
+                        isLoading = current.isLoading,
                         today = current.today.copy(
                             leakCount = snapshot.score,
                             trackerCount = publicDnsPercent,
@@ -148,16 +153,13 @@ class SummaryViewModel(
                         )
                     )
                 }
-            }
-        }
 
-        viewModelScope.launch {
-            combine(todayBytesFlow, topAppFlow, lastDaysFlow) { bytes, topApp, days ->
-                Triple(bytes, topApp, days)
-            }.collect { (bytes, topApp, days) ->
-                println("SUMMARY_DEBUG bytes=$bytes")
-                println("SUMMARY_DEBUG topApp=$topApp")
-                println("SUMMARY_DEBUG days=${days.size}")
+                if (refreshStartedAtMs != 0L) {
+                    val elapsed = System.currentTimeMillis() - refreshStartedAtMs
+                    if (elapsed < minShimmerMs) delay(minShimmerMs - elapsed)
+                    refreshStartedAtMs = 0L
+                    _state.update { it.copy(isLoading = false) }
+                }
             }
         }
 
@@ -166,19 +168,17 @@ class SummaryViewModel(
                 todayBytesFlow,
                 topAppFlow,
                 lastDaysFlow,
-                selectedWindow
-            ) { totalBytes, topAppRow, lastDays, selected ->
+                selectedWindow,
+                isRefreshing
+            ) { totalBytes, topAppRow, lastDays, selected, refreshing ->
                 val resolvedTopAppLabel = resolveTopAppLabel(topAppRow)
                 SummaryContract.State(
-                    isLoading = false,
+                    isLoading = refreshing,
                     today = SummaryContract.Today(
                         totalBytes = totalBytes,
                         leakCount = state.value.today.leakCount,
                         trackerCount = state.value.today.trackerCount,
-                        topAppLabel = if (resolvedTopAppLabel.isBlank())
-                            state.value.today.topAppLabel
-                        else
-                            resolvedTopAppLabel
+                        topAppLabel = resolvedTopAppLabel.ifBlank { state.value.today.topAppLabel }
                     ),
                     lastDays = lastDays,
                     selectedWindow = selected
@@ -201,7 +201,20 @@ class SummaryViewModel(
             }
 
             SummaryContract.Event.Refresh -> {
+                val token = System.nanoTime()
+                refreshToken = token
+
+                isRefreshing.value = true
+                _effects.tryEmit(SummaryContract.Effect.Snackbar("Syncing metrics…"))
+
                 leakAnalyzerBridge.emitSnapshot(force = true)
+
+                viewModelScope.launch {
+                    delay(minShimmerMs)
+                    if (refreshToken == token) {
+                        isRefreshing.value = false
+                    }
+                }
             }
 
             is SummaryContract.Event.OpenDay -> {
@@ -228,6 +241,4 @@ class SummaryViewModel(
 @OptIn(ExperimentalCoroutinesApi::class)
 private inline fun <T, R> StateFlow<T>.flatMapLatestCompat(
     crossinline transform: suspend (T) -> Flow<R>
-): Flow<R> {
-    return this.flatMapLatest { value -> transform(value) }
-}
+): Flow<R> = this.flatMapLatest { value -> transform(value) }

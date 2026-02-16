@@ -1,7 +1,6 @@
 package com.muratcangzm.leaks.ui
 
 import com.muratcangzm.shared.model.leak.TopDomain
-import com.muratcangzm.shared.model.leak.TopServer
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -13,15 +12,25 @@ interface LeaksContract {
         val selectedSeverity: Severity = Severity.All,
         val selectedTimeRange: TimeRange = TimeRange.Last24h,
         val score: Int = 0,
+        val reasons: List<Reason> = emptyList(),
         val totalQueries: Long = 0L,
         val uniqueDomains: Int = 0,
         val publicDnsRatio: Double = 0.0,
         val suspiciousEntropyQueries: Long = 0L,
         val burstQueries: Long = 0L,
         val topDomains: List<TopDomain> = emptyList(),
-        val topServers: List<TopServer> = emptyList()
+        val topServers: List<TopServerUi> = emptyList()
     )
 
+    enum class Reason { PublicDns, Entropy, Burst }
+
+    data class TopServerUi(
+        val ip: String,
+        val count: Long,
+        val asn: Int? = null,
+        val country: String? = null,
+        val org: String? = null
+    )
 
     sealed interface Event {
         data class SetQuery(val value: String) : Event
@@ -32,6 +41,7 @@ interface LeaksContract {
     }
 
     sealed interface Effect {
+        data class Snackbar(val message: String) : Effect
         data class Toast(val message: String) : Effect
         data class NavigateLeakDetail(val leakId: String) : Effect
     }

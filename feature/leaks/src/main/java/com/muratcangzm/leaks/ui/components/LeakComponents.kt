@@ -2,7 +2,6 @@ package com.muratcangzm.leaks.ui.components
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -24,7 +23,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -47,7 +45,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.muratcangzm.leaks.ui.LeaksContract
 import com.muratcangzm.shared.model.leak.TopDomain
-import com.muratcangzm.shared.model.leak.TopServer
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -232,6 +229,7 @@ private fun LeaksChip(
 @Composable
 fun LeaksGaugeCard(
     score: Int,
+    reasons: List<LeaksContract.Reason>,
     totalQueries: Long,
     uniqueDomains: Int,
     publicDnsRatio: Double,
@@ -264,69 +262,117 @@ fun LeaksGaugeCard(
         border = BorderStroke(1.dp, LeaksTokens.BorderBrush),
         modifier = modifier.fillMaxWidth()
     ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(modifier = Modifier.size(108.dp), contentAlignment = Alignment.Center) {
-                Canvas(modifier = Modifier.matchParentSize()) {
-                    val r = size.minDimension / 2f
-                    val stroke = 10f
-                    val startAngle = 210f
-                    val sweepAngleTotal = 300f
-                    val sweepAngleValue = sweepAngleTotal * (clamped / 100f)
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.size(108.dp), contentAlignment = Alignment.Center) {
+                    Canvas(modifier = Modifier.matchParentSize()) {
+                        val r = size.minDimension / 2f
+                        val stroke = 10f
+                        val startAngle = 210f
+                        val sweepAngleTotal = 300f
+                        val sweepAngleValue = sweepAngleTotal * (clamped / 100f)
 
-                    drawArc(
-                        color = Color.White.copy(alpha = 0.06f),
-                        startAngle = startAngle,
-                        sweepAngle = sweepAngleTotal,
-                        useCenter = false,
-                        style = Stroke(width = stroke, cap = StrokeCap.Round)
-                    )
-                    drawArc(
-                        brush = Brush.sweepGradient(
-                            colors = listOf(
-                                severityColor.copy(alpha = 0.15f),
-                                severityColor.copy(alpha = 0.75f),
-                                Color.White.copy(alpha = 0.60f),
-                                severityColor.copy(alpha = 0.15f)
+                        drawArc(
+                            color = Color.White.copy(alpha = 0.06f),
+                            startAngle = startAngle,
+                            sweepAngle = sweepAngleTotal,
+                            useCenter = false,
+                            style = Stroke(width = stroke, cap = StrokeCap.Round)
+                        )
+                        drawArc(
+                            brush = Brush.sweepGradient(
+                                colors = listOf(
+                                    severityColor.copy(alpha = 0.15f),
+                                    severityColor.copy(alpha = 0.75f),
+                                    Color.White.copy(alpha = 0.60f),
+                                    severityColor.copy(alpha = 0.15f)
+                                ),
+                                center = center
                             ),
-                            center = center
-                        ),
-                        startAngle = startAngle,
-                        sweepAngle = sweepAngleValue,
-                        useCenter = false,
-                        style = Stroke(width = stroke, cap = StrokeCap.Round)
-                    )
+                            startAngle = startAngle,
+                            sweepAngle = sweepAngleValue,
+                            useCenter = false,
+                            style = Stroke(width = stroke, cap = StrokeCap.Round)
+                        )
 
-                    val ringPulse = 0.08f + 0.06f * (0.5f + 0.5f * sin(2f * PI.toFloat() * sweep))
-                    drawCircle(
-                        color = severityColor.copy(alpha = ringPulse),
-                        radius = r * 1.08f,
-                        style = Stroke(width = 2.2f)
-                    )
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Risk", color = LeaksTokens.TextDim)
-                    AnimatedContent(
-                        targetState = clamped,
-                        transitionSpec = {
-                            (fadeIn(tween(140)) togetherWith fadeOut(tween(120))).using(SizeTransform(clip = false))
-                        },
-                        label = "score"
-                    ) { v ->
-                        Text(v.toString(), color = severityColor)
+                        val ringPulse = 0.08f + 0.06f * (0.5f + 0.5f * sin(2f * PI.toFloat() * sweep))
+                        drawCircle(
+                            color = severityColor.copy(alpha = ringPulse),
+                            radius = r * 1.08f,
+                            style = Stroke(width = 2.2f)
+                        )
                     }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Risk", color = LeaksTokens.TextDim)
+                        AnimatedContent(
+                            targetState = clamped,
+                            transitionSpec = {
+                                (fadeIn(tween(140)) togetherWith fadeOut(tween(120))).using(SizeTransform(clip = false))
+                            },
+                            label = "score"
+                        ) { v ->
+                            Text(v.toString(), color = severityColor)
+                        }
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
+                    LeaksMetricRow(label = "Total queries", value = totalQueries.toString(), accent = LeaksTokens.Accent)
+                    LeaksMetricRow(label = "Unique domains", value = uniqueDomains.toString(), accent = LeaksTokens.Accent)
+                    LeaksMetricRow(label = "Public DNS ratio", value = "${(publicDnsRatio * 100.0).toInt()}%", accent = LeaksTokens.Good)
+                    LeaksMetricRow(label = "Entropy suspicious", value = suspiciousEntropyQueries.toString(), accent = LeaksTokens.Warn)
+                    LeaksMetricRow(label = "Burst queries", value = burstQueries.toString(), accent = LeaksTokens.Danger)
                 }
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
-                LeaksMetricRow(label = "Total queries", value = totalQueries.toString(), accent = LeaksTokens.Accent)
-                LeaksMetricRow(label = "Unique domains", value = uniqueDomains.toString(), accent = LeaksTokens.Accent)
-                LeaksMetricRow(label = "Public DNS ratio", value = "${(publicDnsRatio * 100.0).toInt()}%", accent = LeaksTokens.Good)
-                LeaksMetricRow(label = "Entropy suspicious", value = suspiciousEntropyQueries.toString(), accent = LeaksTokens.Warn)
-                LeaksMetricRow(label = "Burst queries", value = burstQueries.toString(), accent = LeaksTokens.Danger)
+            LeaksReasonRow(reasons = reasons)
+        }
+    }
+}
+
+@Composable
+private fun LeaksReasonRow(
+    reasons: List<LeaksContract.Reason>,
+    modifier: Modifier = Modifier
+) {
+    if (reasons.isEmpty()) return
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        reasons.forEach { r ->
+            val (label, color) = when (r) {
+                LeaksContract.Reason.PublicDns -> "Public DNS" to LeaksTokens.Good
+                LeaksContract.Reason.Entropy -> "Entropy" to LeaksTokens.Warn
+                LeaksContract.Reason.Burst -> "Burst" to LeaksTokens.Danger
+            }
+            Surface(
+                color = LeaksTokens.Surface,
+                shape = RoundedCornerShape(LeaksTokens.CornerSmall),
+                border = BorderStroke(
+                    1.dp,
+                    Brush.linearGradient(
+                        listOf(
+                            LeaksTokens.Border.copy(alpha = 0.70f),
+                            color.copy(alpha = 0.28f),
+                            LeaksTokens.Border.copy(alpha = 0.70f)
+                        )
+                    )
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    LeaksAccentDot(accent = color, modifier = Modifier.size(10.dp))
+                    Text(label, color = LeaksTokens.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }
@@ -395,7 +441,7 @@ private fun LeaksAccentDot(
 @Composable
 fun LeaksPanels(
     topDomains: List<TopDomain>,
-    topServers: List<TopServer>,
+    topServers: List<LeaksContract.TopServerUi>,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -410,7 +456,20 @@ fun LeaksPanels(
         )
         LeaksListPanel(
             title = "Top servers",
-            items = topServers.map { "${it.ip} • ${it.count}" },
+            items = topServers.map { s ->
+                val enrich = buildString {
+                    if (!s.country.isNullOrBlank()) append(s.country)
+                    if (!s.org.isNullOrBlank()) {
+                        if (isNotEmpty()) append(" · ")
+                        append(s.org)
+                    }
+                    if (s.asn != null) {
+                        if (isNotEmpty()) append(" · ")
+                        append("AS").append(s.asn)
+                    }
+                }
+                if (enrich.isBlank()) "${s.ip} • ${s.count}" else "${s.ip} • $enrich • ${s.count}"
+            },
             modifier = Modifier.weight(1f)
         )
     }

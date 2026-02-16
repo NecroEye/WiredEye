@@ -34,6 +34,7 @@ interface SummaryContract {
     }
 
     sealed interface Effect {
+        data class Snackbar(val message: String) : Effect
         data class Toast(val message: String) : Effect
         data class NavigateDayDetail(val dateLabel: String) : Effect
     }

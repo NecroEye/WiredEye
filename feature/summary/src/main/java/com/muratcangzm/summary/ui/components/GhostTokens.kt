@@ -12,6 +12,9 @@ object SummaryTokens {
     val SurfaceStrong = Color(0x2A101826)
     val SurfaceWeak = Color(0x14101826)
 
+    val TopBar = Color(0xFF071018)
+
+
     val Border = Color(0xFF233355)
     val BorderSoft = Color(0xFF233355).copy(alpha = 0.55f)
 
