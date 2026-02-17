@@ -14,6 +14,7 @@ import com.muratcangzm.monitor.di.monitorModule
 import com.muratcangzm.network.di.networkModule
 import com.muratcangzm.preferences.di.prefsModule
 import com.muratcangzm.summary.di.summaryModule
+import com.muratcangzm.wiredeye.di.settingsAppModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import timber.log.Timber
@@ -60,6 +61,7 @@ class App : Application() {
                 leaksModule,
                 summaryModule,
                 coreLeakModule,
+                settingsAppModule,
             )
         }
     }

@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.navigation.compose.rememberNavController
 import com.muratcangzm.common.HomeViewModel
+import com.muratcangzm.ui.components.ClampedFontScale
 import com.muratcangzm.wiredeye.nav.WiredEyeNavGraph
 import com.muratcangzm.wiredeye.ui.theme.WiredEyeTheme
 import org.koin.androidx.viewmodel.ext.android.viewModel
@@ -20,7 +21,9 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
+
         installSplashScreen()
+
         super.onCreate(savedInstanceState)
         setTheme(R.style.Theme_WiredEye)
         enableEdgeToEdge()
@@ -41,11 +44,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                WiredEyeNavGraph(
-                    modifier = Modifier,
-                    navController = navController,
-                    homeViewModel = homeViewModel
-                )
+                ClampedFontScale {
+                    WiredEyeNavGraph(
+                        modifier = Modifier,
+                        navController = navController,
+                        homeViewModel = homeViewModel
+                    )
+                }
             }
         }
     }

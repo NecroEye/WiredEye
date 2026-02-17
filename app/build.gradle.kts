@@ -110,11 +110,13 @@ dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:preferences"))
     implementation(project(":core:resources"))
+    implementation(project(":core:ui"))
     implementation(project(":core:shared"))
     implementation(project(":feature:monitor"))
     implementation(project(":feature:details"))
     implementation(project(":feature:leaks"))
     implementation(project(":feature:summary"))
+    implementation(project(":feature:settings"))
 
     // --- DI + WorkManager ---
     implementation(libs.koin.androidx.workmanager)

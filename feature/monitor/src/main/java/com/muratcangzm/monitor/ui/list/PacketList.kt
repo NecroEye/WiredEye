@@ -41,13 +41,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavController
 import com.muratcangzm.monitor.MonitorViewModel
 import com.muratcangzm.monitor.model.Direction
 import com.muratcangzm.monitor.ui.adapters.UiPacketItem
@@ -256,8 +254,6 @@ fun PacketRow(
         label = "anomaly-flash"
     )
 
-    //val navigator = LocalNavigator.current
-    val navigator = NavController(LocalContext.current)
     val initialFrom = row.from
     val initialTo = row.to
 
@@ -343,6 +339,7 @@ fun PacketRow(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
             .drawWithContent {
                 drawContent()
                 if (flash > 0f) {

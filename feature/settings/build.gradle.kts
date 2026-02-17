@@ -7,16 +7,26 @@ plugins {
 }
 
 android {
-    namespace = "com.muratcangzm.monitor"
-    compileSdk = ProjectConfig.compileSdk
+    namespace = "com.muratcangzm.settings"
+    compileSdk {
+        version = release(ProjectConfig.compileSdk)
+    }
 
     defaultConfig {
         minSdk = ProjectConfig.minSdk
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+        }
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -33,32 +43,17 @@ android {
 }
 
 dependencies {
-    implementation(project(":core:ui"))
-    implementation(project(":core:data"))
-    implementation(project(":core:network"))
-    implementation(project(":core:preferences"))
+
     implementation(project(":core:common"))
+    implementation(project(":core:ui"))
     implementation(project(":core:resources"))
     implementation(project(":core:shared"))
-
-    // Koin
-    implementation(libs.koin.android)
-    implementation(libs.koin.androidx.compose)
-
-    //Nav
-    implementation(libs.bundles.navigation)
-
-    //Haze
-    implementation(libs.haze)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-
-    implementation("androidx.compose.material:material-icons-core")
-    implementation("androidx.compose.material:material-icons-extended")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
@@ -68,4 +63,14 @@ dependencies {
 
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+
+    implementation("androidx.compose.material:material-icons-core")
+    implementation("androidx.compose.material:material-icons-extended")
+
+    // Koin
+    implementation(libs.koin.android)
+    implementation(libs.koin.androidx.compose)
+
+    //Nav
+    implementation(libs.bundles.navigation)
 }

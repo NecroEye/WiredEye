@@ -10,6 +10,9 @@
         data object Root: Screens
 
         @Serializable
+        data object SettingsScreen : Screens
+
+        @Serializable
         data object WiredEyeScreen : Screens
 
         @Serializable

@@ -18,7 +18,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -80,36 +79,39 @@ fun WiredEyeRootScreen(
             )
         }
     ) {
-                NavHost(
-                    navController = tabNavController,
-                    startDestination = RootRoutes.Monitor,
-                    modifier = Modifier.fillMaxSize()
+        NavHost(
+            navController = tabNavController,
+            startDestination = RootRoutes.Monitor,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            composable(RootRoutes.Monitor) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = bottomBarHeightDp)
                 ) {
-                    composable(RootRoutes.Monitor) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(bottom = bottomBarHeightDp)
-                        ) {
-                            WiredEyeScreen(homeViewModel = homeViewModel)
-                        }
-                    }
+                    WiredEyeScreen(homeViewModel = homeViewModel)
+                }
+            }
 
-                    composable(RootRoutes.Leaks) {
-                        CompositionLocalProvider(
-                            LocalBottomBarPadding provides (bottomBarHeightDp + 8.dp)
-                        ) {
-                            LeaksScreen(snackbarBottomPadding = bottomBarHeightDp)
-                        }
-                    }
+            composable(RootRoutes.Leaks) {
+                CompositionLocalProvider(
+                    LocalBottomBarPadding provides (bottomBarHeightDp + 8.dp)
+                ) {
+                    LeaksScreen(snackbarBottomPadding = bottomBarHeightDp)
+                }
+            }
 
-                    composable(RootRoutes.Summary) {
-                        CompositionLocalProvider(
-                            LocalBottomBarPadding provides (bottomBarHeightDp + 8.dp)
-                        ) {
-                            SummaryScreen(snackbarBottomPadding = bottomBarHeightDp)
-                        }
-                    }
+            composable(RootRoutes.Summary) {
+                CompositionLocalProvider(
+                    LocalBottomBarPadding provides (bottomBarHeightDp + 8.dp)
+                ) {
+                    SummaryScreen(
+                        homeViewModel = homeViewModel,
+                        snackbarBottomPadding = bottomBarHeightDp,
+                    )
                 }
             }
         }
+    }
+}

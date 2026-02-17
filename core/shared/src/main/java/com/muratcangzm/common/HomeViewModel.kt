@@ -9,13 +9,21 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
-class HomeViewModel: ViewModel() {
+class HomeViewModel : ViewModel() {
+
     private val _navigationEvents = MutableSharedFlow<NavigationData>(
         replay = 0,
         extraBufferCapacity = 16,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val navigationEvents: SharedFlow<NavigationData> = _navigationEvents.asSharedFlow()
+
+    private val _uiEvents = MutableSharedFlow<UiEvent>(
+        replay = 0,
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
+    val uiEvents: SharedFlow<UiEvent> = _uiEvents.asSharedFlow()
 
     fun openDetails(uiPacket: UiPacket) {
         _navigationEvents.tryEmit(
@@ -31,5 +39,19 @@ class HomeViewModel: ViewModel() {
                 popUpToInclusive = true
             )
         )
+    }
+
+    fun openSettings() {
+        _navigationEvents.tryEmit(
+            NavigationData(destination = Screens.SettingsScreen)
+        )
+    }
+
+    fun requestPostNotificationsPermission() {
+        _uiEvents.tryEmit(UiEvent.RequestPostNotificationsPermission)
+    }
+
+    sealed interface UiEvent {
+        data object RequestPostNotificationsPermission : UiEvent
     }
 }

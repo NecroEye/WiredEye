@@ -2,7 +2,6 @@ package com.muratcangzm.leaks.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,6 +34,7 @@ import com.muratcangzm.leaks.ui.components.LeaksPanels
 import com.muratcangzm.leaks.ui.components.LeaksScopeRow
 import com.muratcangzm.leaks.ui.components.LeaksTokens
 import com.muratcangzm.ui.components.GhostShimmer
+import com.muratcangzm.ui.components.rememberSafeOnClick
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -61,7 +61,7 @@ fun LeaksScreen(
             TopAppBar(
                 title = { Text("Leaks", color = LeaksTokens.TextStrong) },
                 actions = {
-                    IconButton(onClick = { viewModel.onEvent(LeaksContract.Event.Refresh) }) {
+                    IconButton(onClick = rememberSafeOnClick { viewModel.onEvent(LeaksContract.Event.Refresh) }) {
                         Icon(
                             imageVector = Icons.Filled.Refresh,
                             contentDescription = "Refresh",
@@ -77,7 +77,12 @@ fun LeaksScreen(
                 windowInsets = TopAppBarDefaults.windowInsets
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState, modifier = Modifier.padding(bottom = snackbarBottomPadding)) },
+        snackbarHost = {
+            SnackbarHost(
+                snackbarHostState,
+                modifier = Modifier.padding(bottom = snackbarBottomPadding)
+            )
+        },
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0)
     ) { innerPadding ->
@@ -89,6 +94,7 @@ fun LeaksScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .navigationBarsPadding()
                     .padding(horizontal = 12.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -204,7 +210,11 @@ private fun LeaksShimmerGauge() {
 @Composable
 private fun LeaksShimmerPanels() {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        GhostShimmer(modifier = Modifier.weight(1f).size(140.dp))
-        GhostShimmer(modifier = Modifier.weight(1f).size(140.dp))
+        GhostShimmer(modifier = Modifier
+            .weight(1f)
+            .size(140.dp))
+        GhostShimmer(modifier = Modifier
+            .weight(1f)
+            .size(140.dp))
     }
 }

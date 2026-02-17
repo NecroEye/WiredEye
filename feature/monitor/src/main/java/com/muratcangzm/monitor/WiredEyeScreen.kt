@@ -1,11 +1,13 @@
 package com.muratcangzm.monitor
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -41,6 +43,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -71,18 +74,19 @@ import com.muratcangzm.monitor.model.NOTIFICATION_ID
 import com.muratcangzm.monitor.model.StatKind
 import com.muratcangzm.monitor.model.TopAction
 import com.muratcangzm.monitor.ui.adapters.rememberUiPacketAdapter
+import com.muratcangzm.monitor.ui.color.MonitoringColorTokens
 import com.muratcangzm.monitor.ui.components.FilterBar
 import com.muratcangzm.monitor.ui.components.LiveDotGhost
 import com.muratcangzm.monitor.ui.components.TechStatsBar
 import com.muratcangzm.monitor.ui.components.rememberQuiescent
 import com.muratcangzm.monitor.ui.dialogs.MetricInfoDialog
 import com.muratcangzm.monitor.ui.list.PacketList
-import com.muratcangzm.monitor.ui.notification.updateRunningNotification
 import com.muratcangzm.monitor.utils.humanBytes
 import com.muratcangzm.monitor.utils.shareWindowJson
 import com.muratcangzm.network.vpn.DnsSnifferVpnService
 import com.muratcangzm.resources.ui.theme.GhostColors
 import com.muratcangzm.ui.components.StatusBarStyle
+import com.muratcangzm.ui.components.rememberSafeOnClick
 import com.muratcangzm.utils.StringUtils
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
@@ -118,15 +122,65 @@ fun WiredEyeScreen(
             }
         }
 
-    StatusBarStyle(
-        color = GhostColors.Surface,
-        darkIcons = false
-    )
-
     fun startWithVpnConsent() {
         val i = VpnService.prepare(context)
         if (i != null) vpnLauncher.launch(i) else monitorViewModel.onEvent(MonitorContract.Event.StartEngine)
     }
+
+    fun ensureNotificationPermissionThenStart() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!granted) {
+                homeViewModel.requestPostNotificationsPermission()
+                return
+            }
+        }
+
+        val notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+        if (!notificationsEnabled) {
+            scope.launch { snackBarHost.showSnackbar("Notifications are disabled for this app. Starting anyway…") }
+        }
+
+        startWithVpnConsent()
+    }
+
+    val notificationPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val notificationsEnabled =
+                NotificationManagerCompat.from(context).areNotificationsEnabled()
+            if (!notificationsEnabled) {
+                scope.launch { snackBarHost.showSnackbar("Notifications are disabled for this app. Starting anyway…") }
+            }
+
+            if (!granted) {
+                scope.launch { snackBarHost.showSnackbar("Notification permission denied. Starting anyway…") }
+            }
+
+            startWithVpnConsent()
+        }
+
+    LaunchedEffect(Unit) {
+        homeViewModel.uiEvents.collect { event ->
+            when (event) {
+                HomeViewModel.UiEvent.RequestPostNotificationsPermission -> {
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        startWithVpnConsent()
+                    }
+                }
+            }
+        }
+    }
+
+    StatusBarStyle(
+        color = GhostColors.Surface,
+        darkIcons = false
+    )
 
     val lastNetworkType = rememberSaveable { mutableStateOf<String?>(null) }
     val hasBaseline = rememberSaveable { mutableStateOf(false) }
@@ -259,10 +313,10 @@ fun WiredEyeScreen(
 
                             TopAction.Idle -> {
                                 TextButton(
-                                    onClick = {
+                                    onClick = rememberSafeOnClick {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         isStopping = false
-                                        startWithVpnConsent()
+                                        ensureNotificationPermissionThenStart()
                                     }
                                 ) {
                                     Text(stringResource(Res.string.action_start))
@@ -270,10 +324,17 @@ fun WiredEyeScreen(
                             }
                         }
                     }
-                }
+
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MonitoringColorTokens.TopBar,
+                    titleContentColor = MonitoringColorTokens.TextStrong,
+                    actionIconContentColor = MonitoringColorTokens.Accent
+                ),
             )
         },
         contentWindowInsets = WindowInsets(0),
+        containerColor = MonitoringColorTokens.TopBar,
         snackbarHost = { SnackbarHost(hostState = snackBarHost) }
     ) { paddingValues ->
         Box(
@@ -292,17 +353,13 @@ fun WiredEyeScreen(
                     onWindowChange = { monitorViewModel.onEvent(MonitorContract.Event.SetWindow(it)) },
                     onSpeedChange = { mode ->
                         monitorViewModel.onEvent(
-                            MonitorContract.Event.SetSpeed(
-                                mode
-                            )
+                            MonitorContract.Event.SetSpeed(mode)
                         )
                     },
                     viewMode = state.viewMode,
                     onViewModeChange = { mode ->
                         monitorViewModel.onEvent(
-                            MonitorContract.Event.SetViewMode(
-                                mode
-                            )
+                            MonitorContract.Event.SetViewMode(mode)
                         )
                     },
                     onClearAll = { monitorViewModel.onEvent(MonitorContract.Event.ClearNow) },

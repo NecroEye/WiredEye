@@ -6,10 +6,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,17 +29,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.muratcangzm.common.HomeViewModel
 import com.muratcangzm.summary.ui.components.GhostBackground
 import com.muratcangzm.summary.ui.components.SummaryDaysCard
 import com.muratcangzm.summary.ui.components.SummaryTodayCard
 import com.muratcangzm.summary.ui.components.SummaryTokens
 import com.muratcangzm.summary.ui.components.SummaryWindowChips
 import com.muratcangzm.ui.components.GhostShimmer
+import com.muratcangzm.ui.components.rememberSafeOnClick
+import com.muratcangzm.utils.StringUtils
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SummaryScreen(
+    homeViewModel: HomeViewModel,
     viewModel: SummaryViewModel = koinViewModel(),
     snackbarBottomPadding: Dp,
 ) {
@@ -67,10 +73,19 @@ fun SummaryScreen(
                 TopAppBar(
                     title = { Text(text = "Summary", color = SummaryTokens.TextBright) },
                     actions = {
-                        IconButton(onClick = { viewModel.onEvent(SummaryContract.Event.Refresh) }) {
+
+                        IconButton(onClick = rememberSafeOnClick { viewModel.onEvent(SummaryContract.Event.Refresh) }) {
                             Icon(
                                 imageVector = Icons.Outlined.Refresh,
-                                contentDescription = "Refresh",
+                                contentDescription = StringUtils.EMPTY,
+                                tint = SummaryTokens.Accent
+                            )
+                        }
+
+                        IconButton(onClick = rememberSafeOnClick { homeViewModel.openSettings() }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Settings,
+                                contentDescription = StringUtils.EMPTY,
                                 tint = SummaryTokens.Accent
                             )
                         }
@@ -96,6 +111,7 @@ fun SummaryScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(inner)
+                    .navigationBarsPadding()
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {

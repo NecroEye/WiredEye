@@ -46,6 +46,13 @@ fun WiredEyeNavGraph(
             val arguments = it.toRoute<Screen.DetailsScreen>()
             DetailsScreen(homeViewModel = homeViewModel, arguments = arguments)
         }
+
+        composable<Screen.SettingsScreen> {
+            com.muratcangzm.settings.ui.SettingsScreen(
+                onNavigateAccount = {},
+                onNavigatePremium = {},
+            )
+        }
     }
 }
 
@@ -56,7 +63,9 @@ private fun defaultEnterTransition(): EnterTransition = slideInHorizontally(init
 private fun defaultExitTransition(): ExitTransition = slideOutHorizontally(targetOffsetX = { -it })
 
 @OptIn(ExperimentalAnimationApi::class)
-private fun defaultPopEnterTransition(): EnterTransition = slideInHorizontally(initialOffsetX = { -it })
+private fun defaultPopEnterTransition(): EnterTransition =
+    slideInHorizontally(initialOffsetX = { -it })
 
 @OptIn(ExperimentalAnimationApi::class)
-private fun defaultPopExitTransition(): ExitTransition = slideOutHorizontally(targetOffsetX = { it })
+private fun defaultPopExitTransition(): ExitTransition =
+    slideOutHorizontally(targetOffsetX = { it })

@@ -36,6 +36,7 @@
             <option value="$PROJECT_DIR$/feature/details" />
             <option value="$PROJECT_DIR$/feature/leaks" />
             <option value="$PROJECT_DIR$/feature/monitor" />
+            <option value="$PROJECT_DIR$/feature/settings" />
             <option value="$PROJECT_DIR$/feature/summary" />
           </set>
         </option>
